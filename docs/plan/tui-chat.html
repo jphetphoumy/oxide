@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oxide TUI Chat — Implementation Plan</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --accent2: #f78166;
+    --green: #3fb950;
+    --purple: #bc8cff;
+    --yellow: #d29922;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 2rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.5rem;
+    margin-bottom: 1.5rem;
+    color: #fff;
+  }
+  h1 span { color: var(--accent2); }
+  h2 {
+    font-size: 1.3rem;
+    color: var(--accent);
+    margin: 2rem 0 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  h2 .num {
+    background: var(--accent);
+    color: var(--bg);
+    border-radius: 50%;
+    width: 1.6rem;
+    height: 1.6rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  h3 {
+    font-size: 1rem;
+    color: var(--purple);
+    margin: 1rem 0 0.4rem;
+  }
+  p, li { color: var(--text); }
+  ul { padding-left: 1.4rem; margin: 0.3rem 0 0.8rem; }
+  li { margin: 0.25rem 0; }
+  code {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.15rem 0.4rem;
+    font-size: 0.9em;
+    color: var(--accent2);
+  }
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    overflow-x: auto;
+    margin: 0.5rem 0 1rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--text);
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    margin: 0.75rem 0;
+  }
+  .tag {
+    display: inline-block;
+    font-size: 0.75rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 12px;
+    font-weight: 600;
+    margin-right: 0.3rem;
+  }
+  .tag-dep { background: #1f2937; color: var(--yellow); border: 1px solid var(--yellow); }
+  .tag-file { background: #1f2937; color: var(--green); border: 1px solid var(--green); }
+  .tag-new { background: #1f2937; color: var(--purple); border: 1px solid var(--purple); }
+  .wireframe {
+    background: #000;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    font-family: monospace;
+    font-size: 0.8rem;
+    white-space: pre;
+    line-height: 1.4;
+    color: var(--text-muted);
+    overflow-x: auto;
+  }
+  .wireframe .highlight { color: var(--accent); }
+  .wireframe .dim { color: #484f58; }
+  .wireframe .green { color: var(--green); }
+  .wireframe .orange { color: var(--accent2); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.5rem 0 1rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+  th { background: var(--surface); color: var(--accent); }
+  .summary {
+    border-left: 3px solid var(--accent);
+    padding: 0.75rem 1rem;
+    background: var(--surface);
+    border-radius: 0 8px 8px 0;
+    margin: 1rem 0;
+  }
+</style>
+</head>
+<body>
+
+<h1><span>Oxide</span> TUI Chat — Implementation Plan</h1>
+
+<div class="summary">
+  <strong>Goal:</strong> Build a terminal UI (ratatui) for Oxide that looks and feels like Claude Code / OpenCode —
+  a scrollable message history area on top and an expandable text input at the bottom.<br>
+  <strong>Branch:</strong> <code>feat/tui-chat</code><br>
+  <strong>Scope:</strong> UI shell only — no Dust API integration yet. We wire a simple echo/mock agent so the layout is testable end-to-end.
+</div>
+
+<!-- ─── WIREFRAME ─── -->
+<h2><span class="num">0</span> Target Layout</h2>
+
+<div class="wireframe">
+<span class="dim">┌──────────────────────────────────────────────────────────┐</span>
+<span class="dim">│</span> <span class="highlight">Oxide</span>                                                    <span class="dim">│</span>
+<span class="dim">├──────────────────────────────────────────────────────────┤</span>
+<span class="dim">│</span>                                                          <span class="dim">│</span>
+<span class="dim">│</span> <span class="orange">  @dust-agent-name</span>                                     <span class="dim">│</span>
+<span class="dim">│</span>   Here is the answer to your question.                   <span class="dim">│</span>
+<span class="dim">│</span>   It spans multiple lines and supports                   <span class="dim">│</span>
+<span class="dim">│</span>   **markdown** rendering later.                          <span class="dim">│</span>
+<span class="dim">│</span>                                                          <span class="dim">│</span>
+<span class="dim">│</span> <span class="green">  you</span>                                                    <span class="dim">│</span>
+<span class="dim">│</span>   What is Dust?                                          <span class="dim">│</span>
+<span class="dim">│</span>                                                          <span class="dim">│</span>
+<span class="dim">│</span> <span class="orange">  @dust-agent-name</span>                                     <span class="dim">│</span>
+<span class="dim">│</span>   Dust is a platform for building AI agents...           <span class="dim">│</span>
+<span class="dim">│</span>                                                          <span class="dim">│</span>
+<span class="dim">│</span>                                                          <span class="dim">│</span>
+<span class="dim">├──────────────────────────────────────────────────────────┤</span>
+<span class="dim">│</span> <span class="green">&gt;</span> Type a message...                                      <span class="dim">│</span>
+<span class="dim">│</span>                                                          <span class="dim">│</span>
+<span class="dim">├──────────────────────────────────────────────────────────┤</span>
+<span class="dim">│</span> <span class="dim">model: gpt-4</span>              <span class="dim">Ctrl+C quit  Enter send</span>       <span class="dim">│</span>
+<span class="dim">└──────────────────────────────────────────────────────────┘</span>
+</div>
+
+<!-- ─── DEPENDENCIES ─── -->
+<h2><span class="num">1</span> Dependencies</h2>
+<div class="card">
+  <table>
+    <tr><th>Crate</th><th>Purpose</th></tr>
+    <tr><td><code>ratatui</code></td><td>TUI framework (widgets, layout, rendering)</td></tr>
+    <tr><td><code>crossterm</code></td><td>Terminal backend (input events, raw mode)</td></tr>
+    <tr><td><code>tokio</code></td><td>Async runtime (needed for future streaming + API calls)</td></tr>
+  </table>
+</div>
+
+<!-- ─── FILE STRUCTURE ─── -->
+<h2><span class="num">2</span> File Structure</h2>
+<pre><code>src/
+├── main.rs              # entry point — terminal setup, event loop, draw
+├── app.rs               # App state (messages, scroll, agent_name, model)
+├── input_buffer.rs      # Custom text buffer with cursor tracking
+├── ui/
+│   ├── mod.rs           # re-exports
+│   ├── layout.rs        # top-level layout split + dynamic input height
+│   ├── messages.rs      # scrollable message history with manual word-wrap
+│   └── input.rs         # renders input via Paragraph + Wrap (soft-wrapping)
+├── event.rs             # crossterm event reader (async channel)
+└── handler.rs           # maps ALL key events → intent-level Actions
+</code></pre>
+
+<!-- ─── STEP 1 ─── -->
+<h2><span class="num">3</span> Step 1 — Scaffold &amp; Terminal Setup</h2>
+<div class="card">
+  <span class="tag tag-file">main.rs</span>
+  <span class="tag tag-dep">ratatui</span>
+  <span class="tag tag-dep">crossterm</span>
+  <span class="tag tag-dep">tokio</span>
+  <ul>
+    <li>Add dependencies to <code>Cargo.toml</code></li>
+    <li>Enter raw mode, enable mouse capture, create <code>CrosstermBackend</code></li>
+    <li>Build the main <code>async</code> event loop: poll events &rarr; update state &rarr; draw</li>
+    <li>Restore terminal on exit (panic hook included)</li>
+  </ul>
+</div>
+
+<!-- ─── STEP 2 ─── -->
+<h2><span class="num">4</span> Step 2 — App State</h2>
+<div class="card">
+  <span class="tag tag-new">app.rs</span>
+  <ul>
+    <li><code>Message { role: Role, content: String }</code> — <code>Role</code> is <code>User | Agent(name)</code></li>
+    <li><code>App { messages: Vec&lt;Message&gt;, scroll: usize, agent_name: String, model: String, should_quit: bool }</code></li>
+    <li>Methods: <code>send_message()</code>, <code>scroll_up()</code>, <code>scroll_down()</code>, <code>quit()</code></li>
+    <li>For now, <code>send_message</code> pushes the user message and immediately pushes a mock assistant reply (echo)</li>
+  </ul>
+</div>
+
+<!-- ─── STEP 3 ─── -->
+<h2><span class="num">5</span> Step 3 — Layout</h2>
+<div class="card">
+  <span class="tag tag-new">ui/layout.rs</span>
+  <ul>
+    <li>Vertical split: <code>[Min(5), Length(3)]</code> — messages area takes remaining space, input has fixed height (expandable later)</li>
+    <li>Top bar: <code>Length(1)</code> for title ("Oxide")</li>
+    <li>Bottom status line: <code>Length(1)</code> — shows model name (left) + keybinding hints (right)</li>
+  </ul>
+  <pre><code>Constraint::Length(1),   // title bar
+Constraint::Min(5),      // messages (fills remaining)
+Constraint::Length(3),   // input box
+Constraint::Length(1),   // status line (model + hints)</code></pre>
+</div>
+
+<!-- ─── STEP 4 ─── -->
+<h2><span class="num">6</span> Step 4 — Message History Widget</h2>
+<div class="card">
+  <span class="tag tag-new">ui/messages.rs</span>
+  <ul>
+    <li>Render each message as a block: role label (colored) + content lines</li>
+    <li>User messages: green "you" label, left-aligned</li>
+    <li>Agent messages: orange <code>@agent-name</code> label (from <code>Role::Agent(name)</code>), left-aligned</li>
+    <li>Manual word-wrap: each content line is broken at <code>terminal_width - indent</code>, preserving indentation on continuation lines</li>
+    <li>Scrollable: track scroll offset, clamp to bounds</li>
+    <li>Auto-scroll to bottom on new message</li>
+  </ul>
+</div>
+
+<!-- ─── STEP 5 ─── -->
+<h2><span class="num">7</span> Step 5 — Input Box</h2>
+<div class="card">
+  <span class="tag tag-new">input_buffer.rs</span>
+  <span class="tag tag-new">ui/input.rs</span>
+  <ul>
+    <li>Custom <code>InputBuffer</code> tracks text content and byte-offset cursor</li>
+    <li>Rendered via ratatui <code>Paragraph</code> + <code>Wrap { trim: false }</code> for native soft-wrapping</li>
+    <li>Cursor position computed accounting for visual wraps</li>
+    <li>Input box height grows dynamically based on content (clamped to half terminal)</li>
+    <li>Bordered box with placeholder text "Type a message..."</li>
+    <li><strong>Enter</strong> &rarr; submit message</li>
+    <li><strong>Alt+Enter</strong> &rarr; newline (multi-line input)</li>
+    <li>Clear input after submit</li>
+  </ul>
+  <h3>Why not tui-textarea?</h3>
+  <p><code>tui-textarea</code> does not support soft line wrapping &mdash; long input scrolls
+  horizontally off-screen, which breaks readability. A custom <code>InputBuffer</code> paired with
+  ratatui's <code>Paragraph + Wrap</code> gives us native soft-wrapping at the terminal boundary,
+  dynamic box height, and full control over cursor placement. The trade-off is maintaining
+  basic editing (insert, delete, cursor movement) ourselves, but the surface area is small
+  and well-tested (18 unit tests).</p>
+</div>
+
+<!-- ─── STEP 6 ─── -->
+<h2><span class="num">8</span> Step 6 — Event Handling</h2>
+<div class="card">
+  <span class="tag tag-new">event.rs</span>
+  <span class="tag tag-new">handler.rs</span>
+  <ul>
+    <li><strong>event.rs</strong>: async task that reads crossterm events and sends them over a <code>tokio::mpsc</code> channel</li>
+    <li><strong>handler.rs</strong>: maps every key event to an intent-level <code>Action</code>:
+      <ul>
+        <li><code>Ctrl+C</code> / <code>Ctrl+D</code> &rarr; <code>Quit</code></li>
+        <li><code>Enter</code> &rarr; <code>Submit</code></li>
+        <li><code>Alt+Enter</code> &rarr; <code>InsertNewline</code></li>
+        <li><code>Backspace</code> / <code>Delete</code> &rarr; <code>DeleteBack</code> / <code>DeleteForward</code></li>
+        <li>Arrow keys, Home, End &rarr; <code>MoveLeft</code>, <code>MoveRight</code>, <code>MoveHome</code>, <code>MoveEnd</code></li>
+        <li><code>PageUp / PageDown</code> &rarr; <code>ScrollUp</code> / <code>ScrollDown</code></li>
+        <li>Printable chars &rarr; <code>InsertChar(c)</code></li>
+      </ul>
+    </li>
+    <li><code>apply_action()</code> in handler.rs applies each <code>Action</code> to <code>App</code> + <code>InputBuffer</code>. <code>main.rs</code> only runs the event loop and render loop.</li>
+  </ul>
+</div>
+
+<!-- ─── MILESTONES ─── -->
+<h2><span class="num">9</span> Implementation Order</h2>
+<div class="card">
+  <table>
+    <tr><th>#</th><th>Milestone</th><th>Deliverable</th></tr>
+    <tr><td>1</td><td>Scaffold + terminal loop</td><td>Blank screen that exits on Ctrl+C</td></tr>
+    <tr><td>2</td><td>App state + layout</td><td>Four-row layout renders (empty)</td></tr>
+    <tr><td>3</td><td>Input box</td><td>Can type, see cursor, clear on Enter</td></tr>
+    <tr><td>4</td><td>Message history</td><td>Sent messages appear, scrollable</td></tr>
+    <tr><td>5</td><td>Mock agent</td><td>Echo reply appears after each user message</td></tr>
+    <tr><td>6</td><td>Polish</td><td>Colors, title bar, hint bar, edge cases</td></tr>
+  </table>
+</div>
+
+<!-- ─── OUT OF SCOPE ─── -->
+<h2><span class="num">!</span> Out of Scope (for now)</h2>
+<div class="card">
+  <ul>
+    <li>Dust API integration / real agent calls</li>
+    <li>Markdown rendering in messages</li>
+    <li>Streaming / token-by-token display</li>
+    <li>Command palette / slash commands</li>
+    <li>Conversation persistence / history</li>
+    <li>Config file loading</li>
+  </ul>
+</div>
+
+</body>
+</html>
