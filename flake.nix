@@ -24,6 +24,7 @@
           buildInputs = [
             rustToolchain
             pkgs.pkg-config
+            pkgs.dbus
             pkgs.openssl
             pkgs.pre-commit
           ];
@@ -37,7 +38,7 @@
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
           nativeBuildInputs = [ pkgs.pkg-config ];
-          buildInputs = [ pkgs.openssl ];
+          buildInputs = [ pkgs.openssl pkgs.dbus ];
         };
       }
     );

@@ -22,7 +22,7 @@ base64 = "0.22"
 clap = { version = "4.5", features = ["derive"] }
 crossterm = "0.28"
 jsonwebtoken = "9"
-keyring = "3"
+keyring = { version = "3", features = ["linux-native-sync-persistent", "crypto-rust"] }
 open = "5"
 ratatui = "0.29"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
