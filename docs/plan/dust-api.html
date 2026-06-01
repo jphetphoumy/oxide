@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oxide — Dust API Integration Plan</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --accent2: #f78166;
+    --green: #3fb950;
+    --purple: #bc8cff;
+    --yellow: #d29922;
+    --red: #f85149;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 2rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.5rem;
+    margin-bottom: 1.5rem;
+    color: #fff;
+  }
+  h1 span { color: var(--accent2); }
+  h2 {
+    font-size: 1.3rem;
+    color: var(--accent);
+    margin: 2rem 0 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  h2 .num {
+    background: var(--accent);
+    color: var(--bg);
+    border-radius: 50%;
+    width: 1.6rem;
+    height: 1.6rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  h3 {
+    font-size: 1rem;
+    color: var(--purple);
+    margin: 1rem 0 0.4rem;
+  }
+  h4 {
+    font-size: 0.95rem;
+    color: var(--yellow);
+    margin: 0.8rem 0 0.3rem;
+  }
+  p, li { color: var(--text); }
+  ul { padding-left: 1.4rem; margin: 0.3rem 0 0.8rem; }
+  li { margin: 0.25rem 0; }
+  code {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.15rem 0.4rem;
+    font-size: 0.9em;
+    color: var(--accent2);
+  }
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    overflow-x: auto;
+    margin: 0.5rem 0 1rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--text);
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    margin: 0.75rem 0;
+  }
+  .tag {
+    display: inline-block;
+    font-size: 0.75rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 12px;
+    font-weight: 600;
+    margin-right: 0.3rem;
+  }
+  .tag-dep { background: #1f2937; color: var(--yellow); border: 1px solid var(--yellow); }
+  .tag-file { background: #1f2937; color: var(--green); border: 1px solid var(--green); }
+  .tag-new { background: #1f2937; color: var(--purple); border: 1px solid var(--purple); }
+  .tag-mod { background: #1f2937; color: var(--accent); border: 1px solid var(--accent); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.5rem 0 1rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+  th { background: var(--surface); color: var(--accent); }
+  .summary {
+    border-left: 3px solid var(--accent);
+    padding: 0.75rem 1rem;
+    background: var(--surface);
+    border-radius: 0 8px 8px 0;
+    margin: 1rem 0;
+  }
+  .warn {
+    border-left: 3px solid var(--yellow);
+    padding: 0.75rem 1rem;
+    background: var(--surface);
+    border-radius: 0 8px 8px 0;
+    margin: 1rem 0;
+  }
+  .endpoint {
+    font-family: monospace;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.6rem 1rem;
+    margin: 0.4rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .method {
+    font-weight: 700;
+    font-size: 0.8rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+  .method-get { background: var(--green); color: var(--bg); }
+  .method-post { background: var(--accent); color: var(--bg); }
+  .endpoint-path { color: var(--text-muted); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+
+<h1><span>Oxide</span> Dust API Integration Plan</h1>
+
+<div class="summary">
+  <strong>Goal:</strong> Replace the echo agent with real Dust API calls so Oxide can talk to
+  any Dust agent — create conversations, send messages, and stream responses token-by-token.<br>
+  <strong>Prerequisite:</strong> The TUI chat shell from <code>feat/tui-chat</code> is merged.<br>
+  <strong>Reference:</strong> Dust CLI (<code>dust-cli</code>) and <code>@dust-tt/client</code> SDK,
+  plus the Dust OpenAPI spec (<code>front/public/swagger.json</code>).
+</div>
+
+<!-- ─── CONTEXT ─── -->
+<h2><span class="num">0</span> Context &amp; Approach</h2>
+<div class="card">
+  <p>The official Dust CLI is a TypeScript/Ink app using the <code>@dust-tt/client</code> SDK.
+  Oxide is a Rust TUI — we build our own HTTP client against the same REST API.</p>
+
+  <h4>What we take from the Dust CLI</h4>
+  <ul>
+    <li><strong>Origin context:</strong> messages include <code>origin: "cli"</code> in the context object,
+    so Dust analytics can distinguish CLI traffic from web traffic.</li>
+    <li><strong>User-Agent header:</strong> <code>"User-Agent: Dust CLI"</code> — same as the official CLI,
+    used by Dust for billing and usage tracking.</li>
+    <li><strong>API structure:</strong> same REST endpoints, same JSON shapes, same SSE streaming protocol.</li>
+  </ul>
+
+  <h4>What we do differently</h4>
+  <ul>
+    <li>No MCP server registration (out of scope for this phase).</li>
+    <li>Rust-native SSE parsing instead of <code>eventsource-parser</code>.</li>
+    <li>Rust-native keyring via <code>keyring</code> crate instead of Node's <code>keytar</code>.</li>
+    <li>JWT decoding via <code>jsonwebtoken</code> crate instead of <code>jwt-decode</code>.</li>
+  </ul>
+</div>
+
+<!-- ─── API ENDPOINTS ─── -->
+<h2><span class="num">1</span> API Endpoints</h2>
+
+<div class="card">
+  <p>All endpoints are relative to the base URL (e.g. <code>https://dust.tt</code>) and scoped to
+  <code>/api/v1/w/{workspaceId}/assistant/</code>.</p>
+
+  <h4>List agents</h4>
+  <div class="endpoint">
+    <span class="method method-get">GET</span>
+    <span class="endpoint-path">/api/v1/w/{wId}/assistant/agent_configurations?view=list</span>
+  </div>
+  <p>Returns available agent configurations. We use this to let the user pick an agent or validate a configured agent ID.</p>
+
+  <h4>Create conversation</h4>
+  <div class="endpoint">
+    <span class="method method-post">POST</span>
+    <span class="endpoint-path">/api/v1/w/{wId}/assistant/conversations</span>
+  </div>
+  <pre><code>{
+  "title": "Oxide: &lt;first 30 chars&gt;...",
+  "visibility": "unlisted",
+  "message": {
+    "content": "user message text",
+    "mentions": [{ "configurationId": "agent_sId" }],
+    "context": {
+      "timezone": "Europe/Paris",
+      "username": "jphetphoumy",
+      "fullName": "...",
+      "email": "...",
+      "origin": "cli"
+    }
+  }
+}</code></pre>
+  <p>Creates a new conversation with the first user message. Returns <code>conversation.sId</code>
+  and <code>message.sId</code> (the user message ID, needed to find the agent reply for streaming).</p>
+
+  <h4>Post follow-up message</h4>
+  <div class="endpoint">
+    <span class="method method-post">POST</span>
+    <span class="endpoint-path">/api/v1/w/{wId}/assistant/conversations/{cId}/messages</span>
+  </div>
+  <p>Same body shape as the <code>message</code> object above. Used for subsequent messages
+  in an existing conversation.</p>
+
+  <h4>Stream agent answer events (SSE)</h4>
+  <div class="endpoint">
+    <span class="method method-get">GET</span>
+    <span class="endpoint-path">/api/v1/w/{wId}/assistant/conversations/{cId}/messages/{mId}/events</span>
+  </div>
+  <p>Server-Sent Events stream. Key event types:</p>
+  <table>
+    <tr><th>Event type</th><th>Description</th></tr>
+    <tr><td><code>generation_tokens</code></td><td>Text tokens (classification: <code>tokens</code> or <code>chain_of_thought</code>)</td></tr>
+    <tr><td><code>agent_message_success</code></td><td>Agent finished — stream complete</td></tr>
+    <tr><td><code>agent_error</code></td><td>Agent execution error</td></tr>
+    <tr><td><code>user_message_error</code></td><td>Message creation failed</td></tr>
+    <tr><td><code>agent_generation_cancelled</code></td><td>Generation was cancelled</td></tr>
+  </table>
+
+  <h4>Get conversation</h4>
+  <div class="endpoint">
+    <span class="method method-get">GET</span>
+    <span class="endpoint-path">/api/v1/w/{wId}/assistant/conversations/{cId}</span>
+  </div>
+  <p>Retrieve full conversation (needed after posting a follow-up message to find the agent message ID for streaming).</p>
+</div>
+
+<!-- ─── AUTH & HEADERS ─── -->
+<h2><span class="num">2</span> Authentication &amp; Headers</h2>
+
+<div class="card">
+  <h4>Two authentication modes (same as Dust CLI)</h4>
+
+  <h4>1. OAuth Device Flow (interactive — primary)</h4>
+  <p>Same WorkOS device flow as the official Dust CLI. The user runs <code>oxide login</code> once.</p>
+  <ol>
+    <li><strong>Initiate:</strong>
+      <code>POST https://api.workos.com/user_management/authorize/device</code>
+      with <code>client_id</code> and <code>scope=openid profile email</code>.
+      Returns <code>device_code</code>, <code>user_code</code>, <code>verification_uri_complete</code>, <code>interval</code>.</li>
+    <li><strong>Display:</strong> Show the <code>user_code</code> in the terminal, open <code>verification_uri_complete</code> in the browser.</li>
+    <li><strong>Poll:</strong> Every <code>interval</code> seconds, POST to
+      <code>https://api.workos.com/user_management/authenticate</code>
+      with <code>grant_type=urn:ietf:params:oauth:grant-type:device_code</code> and the <code>device_code</code>.
+      Handle <code>authorization_pending</code> (keep polling) and <code>slow_down</code> (back off +5s).</li>
+    <li><strong>Token received:</strong> Store <code>access_token</code> and <code>refresh_token</code> in the OS keyring.
+      Decode the JWT to extract the region from the <code>https://dust.tt/region</code> claim.</li>
+    <li><strong>Workspace selection:</strong> Call <code>GET /api/v1/w/me/spaces</code> or similar
+      to let the user pick a workspace, then store <code>workspace_id</code> in the keyring.</li>
+  </ol>
+
+  <h4>Token refresh</h4>
+  <p>Before each API call, check JWT expiry. If within 30 seconds of expiring, refresh via:</p>
+  <pre><code>POST https://api.workos.com/user_management/authenticate
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&amp;client_id={CLIENT_ID}&amp;refresh_token={stored_refresh_token}</code></pre>
+  <p>On 400/401, clear tokens and prompt re-login.</p>
+
+  <h4>Token storage</h4>
+  <table>
+    <tr><th>Key</th><th>Value</th><th>Notes</th></tr>
+    <tr><td><code>access_token</code></td><td>JWT</td><td>Bearer token for API calls</td></tr>
+    <tr><td><code>refresh_token</code></td><td>Opaque string</td><td>Used to get new access_token</td></tr>
+    <tr><td><code>workspace_id</code></td><td>Workspace sId</td><td>Scopes all API calls</td></tr>
+    <tr><td><code>region</code></td><td><code>us-central1</code> or <code>europe-west1</code></td><td>Determines base URL</td></tr>
+  </table>
+  <p>Stored in the OS keyring via the <code>keyring</code> Rust crate (service name: <code>"oxide"</code>).
+  Same concept as the Dust CLI's <code>keytar</code> storage.</p>
+
+  <h4>Region-based base URL</h4>
+  <table>
+    <tr><th>Region</th><th>Base URL</th></tr>
+    <tr><td><code>us-central1</code></td><td><code>https://dust.tt</code></td></tr>
+    <tr><td><code>europe-west1</code></td><td><code>https://eu.dust.tt</code></td></tr>
+  </table>
+
+  <h4>WorkOS constants (from Dust CLI production config)</h4>
+  <table>
+    <tr><th>Constant</th><th>Value</th></tr>
+    <tr><td><code>WORKOS_DOMAIN</code></td><td><code>api.workos.com</code></td></tr>
+    <tr><td><code>WORKOS_CLIENT_ID</code></td><td><code>client_01JGCT55T7FVDG9XF74925R1KT</code></td></tr>
+    <tr><td><code>WORKOS_CLAIM_NAMESPACE</code></td><td><code>https://dust.tt/</code></td></tr>
+  </table>
+
+  <h4>Required HTTP headers</h4>
+  <table>
+    <tr><th>Header</th><th>Value</th><th>Notes</th></tr>
+    <tr><td><code>Authorization</code></td><td><code>Bearer {token}</code></td><td>JWT access token from OAuth</td></tr>
+    <tr><td><code>Content-Type</code></td><td><code>application/json</code></td><td>On POST requests</td></tr>
+    <tr><td><code>User-Agent</code></td><td><code>Dust CLI</code></td><td>Same as official CLI — used for billing tracking</td></tr>
+    <tr><td><code>Accept</code></td><td><code>text/event-stream</code></td><td>On SSE streaming requests</td></tr>
+  </table>
+
+  <h4>Message context (origin)</h4>
+  <p>Every message body includes a <code>context</code> object with <code>"origin": "cli"</code>.
+  This is what the Dust CLI sends and is how Dust tracks CLI usage. We keep the same value
+  so our traffic is recognized as CLI-originating.</p>
+</div>
+
+<!-- ─── DEPENDENCIES ─── -->
+<h2><span class="num">3</span> New Dependencies</h2>
+<div class="card">
+  <table>
+    <tr><th>Crate</th><th>Purpose</th></tr>
+    <tr><td><code>reqwest</code> (with <code>rustls-tls</code>, <code>stream</code>)</td><td>HTTP client with streaming support</td></tr>
+    <tr><td><code>serde</code> + <code>serde_json</code></td><td>JSON serialization/deserialization</td></tr>
+    <tr><td><code>toml</code></td><td>Config file parsing</td></tr>
+    <tr><td><code>dirs</code></td><td>Platform-appropriate config directory (<code>~/.config</code>)</td></tr>
+    <tr><td><code>futures</code></td><td>Stream combinators for SSE processing</td></tr>
+    <tr><td><code>keyring</code></td><td>OS keychain storage for tokens (Linux Secret Service, macOS Keychain, Windows Credential Manager)</td></tr>
+    <tr><td><code>jsonwebtoken</code></td><td>JWT decoding for token expiry checks and region extraction</td></tr>
+    <tr><td><code>open</code></td><td>Open verification URL in default browser during OAuth flow</td></tr>
+  </table>
+</div>
+
+<!-- ─── FILE STRUCTURE ─── -->
+<h2><span class="num">4</span> File Structure</h2>
+<pre><code>src/
+├── main.rs              # (mod) add config, auth, dust modules
+├── app.rs               # (mod) async send_message, streaming state
+├── config.rs            # NEW — load config from env/file
+├── auth/
+│   ├── mod.rs           # NEW — re-exports
+│   ├── device_flow.rs   # NEW — OAuth device code flow (WorkOS)
+│   ├── token_storage.rs # NEW — OS keyring read/write (keyring crate)
+│   └── token_refresh.rs # NEW — JWT expiry check + refresh logic
+├── dust/
+│   ├── mod.rs           # NEW — re-exports
+│   ├── client.rs        # NEW — DustClient (HTTP, headers, base URL)
+│   ├── types.rs         # NEW — API request/response structs
+│   └── stream.rs        # NEW — SSE parser + event types
+├── handler.rs           # (mod) wire up async message sending
+├── event.rs             # (unchanged)
+├── input_buffer.rs      # (unchanged)
+└── ui/
+    ├── mod.rs           # (unchanged)
+    ├── layout.rs        # (unchanged)
+    ├── messages.rs      # (mod) render streaming indicator
+    └── input.rs         # (unchanged)</code></pre>
+
+<!-- ─── STEP 1: CONFIG ─── -->
+<h2><span class="num">5</span> Step 1 — Configuration</h2>
+<div class="card">
+  <span class="tag tag-new">src/config.rs</span>
+  <h4>Config struct</h4>
+  <pre><code>pub struct Config {
+    pub agent_id: Option&lt;String&gt;,  // default agent to mention
+    pub base_url: String,           // resolved from region or override
+}
+
+/// Runtime auth state — populated after login
+pub struct AuthState {
+    pub access_token: String,       // JWT from OAuth
+    pub workspace_id: String,
+    pub region: String,             // "us-central1" or "europe-west1"
+}</code></pre>
+
+  <h4>Config file: <code>~/.config/oxide/config.toml</code></h4>
+  <pre><code>[dust]
+agent_id = "..."             # optional — default agent to @mention
+
+[user]
+username = "jphetphoumy"     # for message context
+email = "..."                # optional
+full_name = "..."            # optional</code></pre>
+
+  <h4>Auth resolution</h4>
+  <ol>
+    <li><strong>OS keyring</strong> &rarr; load stored OAuth tokens from a previous <code>oxide login</code>.
+    Check JWT expiry, refresh if needed.</li>
+    <li><strong>No tokens found</strong> &rarr; prompt the user to run <code>oxide login</code>.</li>
+  </ol>
+</div>
+
+<!-- ─── STEP 1b: AUTH ─── -->
+<h2><span class="num">5b</span> Step 1b — Authentication (OAuth Device Flow)</h2>
+<div class="card">
+  <span class="tag tag-new">src/auth/device_flow.rs</span>
+  <span class="tag tag-new">src/auth/token_storage.rs</span>
+  <span class="tag tag-new">src/auth/token_refresh.rs</span>
+
+  <h4>Device flow (oxide login)</h4>
+  <pre><code>pub struct DeviceCodeResponse {
+    pub device_code: String,
+    pub user_code: String,
+    pub verification_uri: String,
+    pub verification_uri_complete: String,
+    pub expires_in: u64,
+    pub interval: u64,
+}
+
+pub struct TokenResponse {
+    pub access_token: String,
+    pub refresh_token: String,
+}
+
+/// Initiates the device code flow with WorkOS.
+pub async fn start_device_flow() -&gt; Result&lt;DeviceCodeResponse&gt;;
+
+/// Polls WorkOS for token exchange. Handles "authorization_pending"
+/// and "slow_down" responses. Returns tokens on success.
+pub async fn poll_for_token(device_code: &amp;str, interval: u64) -&gt; Result&lt;TokenResponse&gt;;
+
+/// Extracts region from JWT claim "https://dust.tt/region".
+pub fn extract_region(access_token: &amp;str) -&gt; String;</code></pre>
+
+  <h4>Token storage (OS keyring)</h4>
+  <pre><code>const SERVICE: &amp;str = "oxide";
+
+pub fn save_tokens(access_token: &amp;str, refresh_token: &amp;str) -&gt; Result&lt;()&gt;;
+pub fn get_access_token() -&gt; Result&lt;Option&lt;String&gt;&gt;;
+pub fn get_refresh_token() -&gt; Result&lt;Option&lt;String&gt;&gt;;
+pub fn save_workspace_id(id: &amp;str) -&gt; Result&lt;()&gt;;
+pub fn get_workspace_id() -&gt; Result&lt;Option&lt;String&gt;&gt;;
+pub fn save_region(region: &amp;str) -&gt; Result&lt;()&gt;;
+pub fn get_region() -&gt; Result&lt;Option&lt;String&gt;&gt;;
+pub fn clear_all() -&gt; Result&lt;()&gt;;</code></pre>
+
+  <h4>Token refresh</h4>
+  <pre><code>/// Returns a valid access token. If the stored JWT is within 30s of
+/// expiry, refreshes it first.
+pub async fn get_valid_token() -&gt; Result&lt;String&gt;;
+
+/// Forces a token refresh. Used before long-running streams.
+pub async fn get_fresh_token() -&gt; Result&lt;String&gt;;</code></pre>
+</div>
+
+<!-- ─── STEP 2: DUST CLIENT ─── -->
+<h2><span class="num">6</span> Step 2 — Dust HTTP Client</h2>
+<div class="card">
+  <span class="tag tag-new">src/dust/client.rs</span>
+  <span class="tag tag-new">src/dust/types.rs</span>
+
+  <h4>DustClient</h4>
+  <pre><code>pub struct DustClient {
+    http: reqwest::Client,
+    base_url: String,
+    workspace_id: String,
+    api_key: String,
+    user_context: UserContext,
+}
+
+impl DustClient {
+    pub fn new(config: &amp;Config) -&gt; Self;
+    pub async fn list_agents(&amp;self) -&gt; Result&lt;Vec&lt;AgentConfig&gt;&gt;;
+    pub async fn create_conversation(&amp;self, msg: &amp;str, agent_id: &amp;str) -&gt; Result&lt;CreateConversationResponse&gt;;
+    pub async fn post_message(&amp;self, conv_id: &amp;str, msg: &amp;str, agent_id: &amp;str) -&gt; Result&lt;PostMessageResponse&gt;;
+    pub async fn get_conversation(&amp;self, conv_id: &amp;str) -&gt; Result&lt;ConversationResponse&gt;;
+    pub async fn stream_events(&amp;self, conv_id: &amp;str, msg_id: &amp;str) -&gt; Result&lt;EventStream&gt;;
+}</code></pre>
+
+  <h4>HTTP client setup</h4>
+  <p>The <code>User-Agent</code> is static, but <code>Authorization</code> is set per-request
+  because the token may be refreshed between calls.</p>
+  <pre><code>// Static client — User-Agent set once
+let http = reqwest::Client::builder()
+    .default_headers({
+        let mut h = HeaderMap::new();
+        h.insert(USER_AGENT, "Dust CLI".parse()?);
+        h
+    })
+    .build()?;
+
+// Per-request: token may have been refreshed
+let token = auth::token_refresh::get_valid_token().await?;
+let resp = self.http.get(url)
+    .header(AUTHORIZATION, format!("Bearer {token}"))
+    .send().await?;</code></pre>
+
+  <h4>Key types (src/dust/types.rs)</h4>
+  <pre><code>// Request types
+#[derive(Serialize)]
+pub struct MessageContext {
+    pub timezone: String,
+    pub username: String,
+    pub origin: String,            // always "cli"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option&lt;String&gt;,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_name: Option&lt;String&gt;,
+}
+
+#[derive(Serialize)]
+pub struct Mention {
+    #[serde(rename = "configurationId")]
+    pub configuration_id: String,
+}
+
+#[derive(Serialize)]
+pub struct MessageBody {
+    pub content: String,
+    pub mentions: Vec&lt;Mention&gt;,
+    pub context: MessageContext,
+}
+
+#[derive(Serialize)]
+pub struct CreateConversationRequest {
+    pub title: String,
+    pub visibility: String,
+    pub message: MessageBody,
+}
+
+// Response types
+#[derive(Deserialize)]
+pub struct ConversationRef {
+    #[serde(rename = "sId")]
+    pub s_id: String,
+}
+
+#[derive(Deserialize)]
+pub struct MessageRef {
+    #[serde(rename = "sId")]
+    pub s_id: String,
+}
+
+#[derive(Deserialize)]
+pub struct CreateConversationResponse {
+    pub conversation: ConversationRef,
+    pub message: Option&lt;MessageRef&gt;,
+}
+
+#[derive(Deserialize)]
+pub struct AgentConfig {
+    #[serde(rename = "sId")]
+    pub s_id: String,
+    pub name: String,
+    pub description: Option&lt;String&gt;,
+    pub status: String,
+}
+
+// SSE event types
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+pub enum StreamEvent {
+    #[serde(rename = "generation_tokens")]
+    GenerationTokens { text: String, classification: String },
+    #[serde(rename = "agent_message_success")]
+    AgentMessageSuccess {},
+    #[serde(rename = "agent_error")]
+    AgentError { error: StreamError },
+    #[serde(rename = "user_message_error")]
+    UserMessageError { error: StreamError },
+    #[serde(rename = "agent_generation_cancelled")]
+    AgentGenerationCancelled {},
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StreamError {
+    pub message: String,
+}</code></pre>
+</div>
+
+<!-- ─── STEP 3: SSE STREAMING ─── -->
+<h2><span class="num">7</span> Step 3 — SSE Stream Parser</h2>
+<div class="card">
+  <span class="tag tag-new">src/dust/stream.rs</span>
+
+  <p>Parse the SSE byte stream from reqwest into typed events. The SSE protocol is simple:
+  lines prefixed with <code>data: </code>, events separated by <code>\n\n</code>.</p>
+
+  <pre><code>pub struct EventStream {
+    response: reqwest::Response,
+    buffer: String,
+}
+
+impl EventStream {
+    /// Yields the next parsed event from the SSE stream.
+    /// Returns None when the stream ends.
+    pub async fn next_event(&amp;mut self) -&gt; Option&lt;Result&lt;StreamEvent&gt;&gt; {
+        loop {
+            // Try to extract a complete event from buffer
+            if let Some(pos) = self.buffer.find("\n\n") {
+                let event_text = self.buffer[..pos].to_string();
+                self.buffer = self.buffer[pos + 2..].to_string();
+
+                // Extract data lines
+                let data: String = event_text.lines()
+                    .filter_map(|l| l.strip_prefix("data: "))
+                    .collect::&lt;Vec&lt;_&gt;&gt;()
+                    .join("\n");
+
+                if data.is_empty() { continue; }
+
+                match serde_json::from_str::&lt;StreamEvent&gt;(&amp;data) {
+                    Ok(event) =&gt; return Some(Ok(event)),
+                    Err(e) =&gt; return Some(Err(e.into())),
+                }
+            }
+
+            // Read more bytes from the response
+            match self.response.chunk().await {
+                Ok(Some(chunk)) =&gt; {
+                    self.buffer.push_str(
+                        &amp;String::from_utf8_lossy(&amp;chunk)
+                    );
+                }
+                Ok(None) =&gt; return None,  // stream ended
+                Err(e) =&gt; return Some(Err(e.into())),
+            }
+        }
+    }
+}</code></pre>
+</div>
+
+<!-- ─── STEP 4: APP INTEGRATION ─── -->
+<h2><span class="num">8</span> Step 4 — Wire Into App</h2>
+<div class="card">
+  <span class="tag tag-mod">src/app.rs</span>
+  <span class="tag tag-mod">src/handler.rs</span>
+  <span class="tag tag-mod">src/main.rs</span>
+
+  <h4>App state changes</h4>
+  <pre><code>pub struct App {
+    messages: Vec&lt;Message&gt;,
+    scroll_offset: usize,
+    agent_name: String,
+    model: String,
+    should_quit: bool,
+
+    // NEW — Dust state
+    conversation_id: Option&lt;String&gt;,   // set after first message
+    is_streaming: bool,                 // true while receiving tokens
+    pending_agent_content: String,      // accumulates tokens during streaming
+}</code></pre>
+
+  <h4>Message flow</h4>
+  <ol>
+    <li>User presses Enter &rarr; <code>Action::Submit</code></li>
+    <li>Push user message to <code>messages</code> immediately (optimistic UI)</li>
+    <li>Push an empty agent message placeholder, set <code>is_streaming = true</code></li>
+    <li>Spawn a tokio task:
+      <ul>
+        <li>If <code>conversation_id</code> is None &rarr; <code>create_conversation()</code></li>
+        <li>Else &rarr; <code>post_message()</code> + <code>get_conversation()</code> to find agent message ID</li>
+        <li>Then <code>stream_events()</code>, sending tokens over an <code>mpsc</code> channel</li>
+      </ul>
+    </li>
+    <li>Main loop receives tokens via channel &rarr; appends to last agent message &rarr; re-renders</li>
+    <li>On <code>agent_message_success</code> or error &rarr; set <code>is_streaming = false</code></li>
+  </ol>
+
+  <h4>Channel design</h4>
+  <pre><code>enum DustEvent {
+    Token(String),             // append text to current agent message
+    StreamDone,                // agent finished
+    Error(String),             // show error in UI
+    ConversationCreated(String), // store conversation_id
+}</code></pre>
+  <p>The main event loop selects on both crossterm events and the <code>DustEvent</code> channel,
+  keeping the UI responsive while streaming.</p>
+</div>
+
+<!-- ─── STEP 5: UI UPDATES ─── -->
+<h2><span class="num">9</span> Step 5 — UI Updates</h2>
+<div class="card">
+  <span class="tag tag-mod">src/ui/messages.rs</span>
+
+  <h4>Streaming indicator</h4>
+  <ul>
+    <li>While <code>is_streaming</code> is true, show a blinking cursor or <code>...</code> after the last agent message</li>
+    <li>Auto-scroll to bottom on each new token (same as current behavior on new messages)</li>
+  </ul>
+
+  <h4>Error display</h4>
+  <ul>
+    <li>API errors render as a system message in red (new <code>Role::System</code> variant)</li>
+    <li>Network errors shown inline: "Connection failed — check your API key and network"</li>
+  </ul>
+
+  <h4>Status bar</h4>
+  <ul>
+    <li>Show agent name from config (or selected agent) instead of hardcoded value</li>
+    <li>Show "streaming..." indicator while receiving tokens</li>
+  </ul>
+</div>
+
+<!-- ─── MILESTONES ─── -->
+<h2><span class="num">10</span> Implementation Order</h2>
+<div class="card">
+  <table>
+    <tr><th>#</th><th>Milestone</th><th>Deliverable</th><th>Branch</th></tr>
+    <tr>
+      <td>1</td>
+      <td>Config loading</td>
+      <td><code>Config</code> struct loads from env + TOML. Tests for precedence &amp; missing fields.</td>
+      <td><code>feat/config</code></td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>Auth — OAuth device flow + token storage</td>
+      <td><code>oxide login</code> runs the WorkOS device code flow, stores tokens in OS keyring.
+      Token refresh with JWT expiry checks.</td>
+      <td><code>feat/auth</code></td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Dust client + types</td>
+      <td><code>DustClient</code> with dynamic auth headers, <code>list_agents()</code> works against real API.
+      All request/response types defined.</td>
+      <td><code>feat/dust-client</code></td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>SSE stream parser</td>
+      <td><code>EventStream</code> parses SSE bytes into typed <code>StreamEvent</code>s. Unit-tested
+      with sample payloads.</td>
+      <td><code>feat/sse-stream</code></td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>Create conversation</td>
+      <td>First user message creates a Dust conversation, streams the reply token-by-token
+      into the TUI. Conversation ID stored for follow-ups.</td>
+      <td><code>feat/dust-conversation</code></td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>Follow-up messages</td>
+      <td>Subsequent messages in the same conversation use <code>post_message()</code>. Full
+      multi-turn chat works.</td>
+      <td><code>feat/dust-followup</code></td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td>Error handling &amp; polish</td>
+      <td>Graceful handling of auth errors (401 &rarr; re-login prompt), network failures,
+      rate limits. Streaming indicator. Status bar updates.</td>
+      <td><code>feat/dust-polish</code></td>
+    </tr>
+  </table>
+</div>
+
+<!-- ─── TESTING ─── -->
+<h2><span class="num">11</span> Testing Strategy</h2>
+<div class="card">
+  <h4>Unit tests</h4>
+  <ul>
+    <li><code>config.rs</code> — env override precedence, TOML parsing, missing required fields</li>
+    <li><code>auth/token_refresh.rs</code> — JWT expiry detection, refresh flow</li>
+    <li><code>auth/device_flow.rs</code> — region extraction from JWT claims</li>
+    <li><code>dust/types.rs</code> — serialization round-trips for request bodies</li>
+    <li><code>dust/stream.rs</code> — SSE parsing with sample payloads (multi-line data, partial chunks, empty events)</li>
+  </ul>
+
+  <h4>Integration tests (manual, with real API)</h4>
+  <ul>
+    <li>Full OAuth login flow, verify tokens stored in keyring</li>
+    <li>Token refresh after manual expiry</li>
+    <li>Create conversation, verify response shape</li>
+    <li>Stream events, verify tokens arrive</li>
+    <li>Post follow-up message</li>
+  </ul>
+
+  <h4>TUI testing (tmux)</h4>
+  <ul>
+    <li>Send a message, verify agent response appears</li>
+    <li>Multi-turn conversation</li>
+    <li>Error scenarios (bad API key, network down)</li>
+  </ul>
+</div>
+
+<!-- ─── OUT OF SCOPE ─── -->
+<h2><span class="num">!</span> Out of Scope (future work)</h2>
+<div class="card">
+  <ul>
+    <li>API key authentication (headless / CI mode)</li>
+    <li>MCP server registration and file system access</li>
+    <li>Tool approval/rejection (<code>validate-action</code>)</li>
+    <li>Content fragments / file attachments</li>
+    <li>Conversation history / persistence</li>
+    <li>Agent selection UI (for now, agent ID is configured)</li>
+    <li>Markdown rendering in agent responses</li>
+    <li>EU region auto-detection from JWT</li>
+    <li>CLI subcommands (<code>oxide chat</code>, <code>oxide run</code>, etc.)</li>
+  </ul>
+</div>
+
+</body>
+</html>
