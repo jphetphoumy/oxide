@@ -324,6 +324,17 @@ Constraint::Length(1),   // status line (model + hints)</code></pre>
   </table>
 </div>
 
+<!-- ─── KNOWN LIMITATIONS ─── -->
+<h2><span class="num">!</span> Known Limitations</h2>
+<div class="card">
+  <h3>Text wrapping is UTF-8 safe but not display-width aware</h3>
+  <p>All wrapping and cursor logic uses <code>chars().count()</code> (one char = one column).
+  This is safe for ASCII and most multi-byte UTF-8 text. However, double-width characters
+  (CJK ideographs, some emoji) occupy two terminal columns, so wrapping and cursor placement
+  can drift by one column for those characters. Full display-width support would require a
+  crate like <code>unicode-width</code>.</p>
+</div>
+
 <!-- ─── OUT OF SCOPE ─── -->
 <h2><span class="num">!</span> Out of Scope (for now)</h2>
 <div class="card">
@@ -334,6 +345,7 @@ Constraint::Length(1),   // status line (model + hints)</code></pre>
     <li>Command palette / slash commands</li>
     <li>Conversation persistence / history</li>
     <li>Config file loading</li>
+    <li>Display-width aware wrapping for CJK / emoji (requires <code>unicode-width</code>)</li>
   </ul>
 </div>
 
