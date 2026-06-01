@@ -1,4 +1,6 @@
 mod app;
+mod auth;
+mod cli;
 mod event;
 mod handler;
 mod input_buffer;
@@ -7,6 +9,8 @@ mod ui;
 use std::io;
 use std::time::Duration;
 
+use anyhow::Result;
+use clap::Parser;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -15,6 +19,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
 use crate::app::App;
+use crate::cli::{Cli, Command};
 use crate::event::{AppEvent, EventReader};
 use crate::handler::{apply_action, handle_key_event};
 use crate::input_buffer::InputBuffer;
@@ -39,13 +44,30 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) {
 }
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
+async fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Some(Command::Login) => auth::device_flow::login().await?,
+        Some(Command::Logout) => auth::logout()?,
+        Some(Command::Status) => auth::status().await?,
+        None => run_tui().await?,
+    }
+
+    Ok(())
+}
+
+fn install_terminal_panic_hook() {
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         let _ = disable_raw_mode();
         let _ = crossterm::execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
         original_hook(panic_info);
     }));
+}
+
+async fn run_tui() -> io::Result<()> {
+    install_terminal_panic_hook();
 
     let mut terminal = setup_terminal()?;
     let mut app = App::new("echo-bot", "mock");
