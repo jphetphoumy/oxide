@@ -41,6 +41,8 @@ pub fn render_input(frame: &mut Frame, buf: &InputBuffer, area: Rect) {
 }
 
 /// Calculate the visual (row, col) of the cursor accounting for soft wrapping.
+/// Counts each char as width 1. Does not account for double-width characters
+/// (CJK, emoji) — would require `unicode-width` crate for full accuracy.
 fn visual_cursor_position(buf: &InputBuffer, wrap_width: usize) -> (usize, usize) {
     let content = buf.content();
     let cursor = buf.cursor();

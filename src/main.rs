@@ -55,7 +55,7 @@ async fn main() -> io::Result<()> {
     loop {
         terminal.draw(|frame| {
             let lines: Vec<String> = input.lines().iter().map(|s| (*s).to_string()).collect();
-            let input_h = input_height(&lines, frame.area().width);
+            let input_h = input_height(&lines, frame.area().width, frame.area().height);
             let layout = render_layout(frame, &app, input_h);
             render_messages(frame, &app, layout.messages);
             render_input(frame, &input, layout.input);

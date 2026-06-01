@@ -17,7 +17,7 @@ pub struct AppLayout {
 /// Calculate the visual height needed for the input box.
 /// Accounts for line wrapping: each logical line may span multiple visual rows.
 /// Adds 2 for the border. Clamps between 3 and half the terminal height.
-pub fn input_height(lines: &[String], terminal_width: u16) -> u16 {
+pub fn input_height(lines: &[String], terminal_width: u16, terminal_height: u16) -> u16 {
     let inner_width = terminal_width.saturating_sub(2).max(1) as usize; // border eats 2 cols
     let visual_lines: usize = lines
         .iter()
@@ -25,13 +25,13 @@ pub fn input_height(lines: &[String], terminal_width: u16) -> u16 {
             if line.is_empty() {
                 1
             } else {
-                line.len().div_ceil(inner_width)
+                line.chars().count().div_ceil(inner_width)
             }
         })
         .sum();
     let height = (visual_lines as u16).saturating_add(2); // +2 for borders
-    let max_height = terminal_width.max(10) / 2; // reasonable cap
-    height.clamp(3, max_height)
+    let max_height = terminal_height / 2;
+    height.clamp(3, max_height.max(3))
 }
 
 pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
@@ -84,12 +84,12 @@ mod tests {
     #[test]
     fn single_short_line_returns_min_height() {
         // 1 visual line + 2 border = 3
-        assert_eq!(input_height(&[s("hello")], 80), 3);
+        assert_eq!(input_height(&[s("hello")], 80, 24), 3);
     }
 
     #[test]
     fn empty_input_returns_min_height() {
-        assert_eq!(input_height(&[s("")], 80), 3);
+        assert_eq!(input_height(&[s("")], 80, 24), 3);
     }
 
     #[test]
@@ -97,14 +97,14 @@ mod tests {
         // inner_width = 80 - 2 = 78
         // 200 chars → ceil(200/78) = 3 visual lines → 3 + 2 = 5
         let long = "a".repeat(200);
-        assert_eq!(input_height(&[s(&long)], 80), 5);
+        assert_eq!(input_height(&[s(&long)], 80, 24), 5);
     }
 
     #[test]
     fn multiple_lines_stack() {
         // 3 short lines → 3 visual lines + 2 border = 5
         let lines = vec![s("one"), s("two"), s("three")];
-        assert_eq!(input_height(&lines, 80), 5);
+        assert_eq!(input_height(&lines, 80, 24), 5);
     }
 
     #[test]
@@ -114,14 +114,21 @@ mod tests {
         // "a" * 80 → ceil(80/38) = 3 visual lines
         // total = 4 + 2 = 6
         let lines = vec![s("hi"), s(&"a".repeat(80))];
-        assert_eq!(input_height(&lines, 40), 6);
+        assert_eq!(input_height(&lines, 40, 24), 6);
     }
 
     #[test]
-    fn height_is_clamped_to_max() {
-        // terminal width 80 → max = 40
-        // 100 lines → 100 + 2 = 102, clamped to 40
+    fn height_is_clamped_to_half_terminal_height() {
+        // terminal height 24 → max = 12
+        // 100 lines → 100 + 2 = 102, clamped to 12
         let lines: Vec<String> = (0..100).map(|_| s("x")).collect();
-        assert_eq!(input_height(&lines, 80), 40);
+        assert_eq!(input_height(&lines, 80, 24), 12);
+    }
+
+    #[test]
+    fn short_terminal_still_allows_min_height() {
+        // terminal height 4 → max = max(4/2, 3) = 3
+        // even on a tiny terminal, input gets at least 3 rows
+        assert_eq!(input_height(&[s("hello")], 80, 4), 3);
     }
 }
