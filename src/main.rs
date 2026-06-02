@@ -88,7 +88,8 @@ async fn run_tui() -> io::Result<()> {
     let config = Config::load().map_err(|error| io::Error::other(error.to_string()))?;
     let agent_name = resolve_agent_id(config.agent_id(), std::env::var("OXIDE_AGENT_ID").ok());
     let cwd = std::env::current_dir()?;
-    let mut app = App::new(&agent_name, cwd);
+    let home_dir = dirs::home_dir();
+    let mut app = App::new(&agent_name, cwd, home_dir);
     let mut events = EventReader::new(Duration::from_millis(250));
     let mut input = InputBuffer::new();
     let (dust_tx, mut dust_rx) = mpsc::unbounded_channel::<DustEvent>();

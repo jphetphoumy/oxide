@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn apply_quit_sets_should_quit() {
-        let mut app = App::new("a", "/workspace");
+        let mut app = App::new("a", "/workspace", None);
         let mut input = InputBuffer::new();
         let outcome = apply_action(&mut app, &mut input, Action::Quit);
         assert_eq!(outcome, ActionOutcome::default());
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn apply_insert_char() {
-        let mut app = App::new("a", "/workspace");
+        let mut app = App::new("a", "/workspace", None);
         let mut input = InputBuffer::new();
         let outcome = apply_action(&mut app, &mut input, Action::InsertChar('x'));
         assert_eq!(outcome, ActionOutcome::default());
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn apply_submit_returns_content_in_outcome() {
-        let mut app = App::new("a", "/workspace");
+        let mut app = App::new("a", "/workspace", None);
         let mut input = InputBuffer::new();
         input.insert_char('h');
         input.insert_char('i');
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn apply_scroll_up() {
-        let mut app = App::new("a", "/workspace");
+        let mut app = App::new("a", "/workspace", None);
         let mut input = InputBuffer::new();
         let outcome = apply_action(&mut app, &mut input, Action::ScrollUp(5));
         assert_eq!(outcome, ActionOutcome::default());
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn apply_scroll_down() {
-        let mut app = App::new("a", "/workspace");
+        let mut app = App::new("a", "/workspace", None);
         let mut input = InputBuffer::new();
         app.scroll_up(10);
         let outcome = apply_action(&mut app, &mut input, Action::ScrollDown(3));

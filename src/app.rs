@@ -18,18 +18,20 @@ pub struct App {
     scroll_offset: usize,
     agent_name: String,
     cwd: PathBuf,
+    home_dir: Option<PathBuf>,
     should_quit: bool,
     conversation_id: Option<String>,
     is_streaming: bool,
 }
 
 impl App {
-    pub fn new(agent_name: &str, cwd: impl Into<PathBuf>) -> Self {
+    pub fn new(agent_name: &str, cwd: impl Into<PathBuf>, home_dir: Option<PathBuf>) -> Self {
         Self {
             messages: Vec::new(),
             scroll_offset: 0,
             agent_name: agent_name.to_string(),
             cwd: cwd.into(),
+            home_dir,
             should_quit: false,
             conversation_id: None,
             is_streaming: false,
@@ -46,6 +48,10 @@ impl App {
 
     pub fn cwd(&self) -> &Path {
         self.cwd.as_path()
+    }
+
+    pub fn home_dir(&self) -> Option<&Path> {
+        self.home_dir.as_deref()
     }
 
     pub fn conversation_id(&self) -> Option<&str> {
@@ -151,38 +157,49 @@ mod tests {
 
     #[test]
     fn new_app_has_empty_messages() {
-        let app = App::new("test-agent", "/workspace");
+        let app = App::new(
+            "test-agent",
+            "/workspace",
+            Some(PathBuf::from("/home/alice")),
+        );
         assert!(app.messages().is_empty());
     }
 
     #[test]
     fn new_app_stores_agent_name() {
-        let app = App::new("my-agent", "/workspace");
+        let app = App::new("my-agent", "/workspace", Some(PathBuf::from("/home/alice")));
         assert_eq!(app.agent_name(), "my-agent");
     }
 
     #[test]
     fn new_app_stores_cwd() {
-        let app = App::new("my-agent", "/workspace");
+        let app = App::new("my-agent", "/workspace", Some(PathBuf::from("/home/alice")));
         assert_eq!(app.cwd(), &PathBuf::from("/workspace"));
     }
 
     #[test]
+    fn new_app_stores_home_dir() {
+        let home_dir = PathBuf::from("/home/alice");
+        let app = App::new("my-agent", "/workspace", Some(home_dir.clone()));
+        assert_eq!(app.home_dir(), Some(home_dir.as_path()));
+    }
+
+    #[test]
     fn new_app_should_not_quit() {
-        let app = App::new("a", "/workspace");
+        let app = App::new("a", "/workspace", None);
         assert!(!app.should_quit());
     }
 
     #[test]
     fn quit_sets_should_quit() {
-        let mut app = App::new("a", "/workspace");
+        let mut app = App::new("a", "/workspace", None);
         app.quit();
         assert!(app.should_quit());
     }
 
     #[test]
     fn send_message_pushes_user_and_placeholder_agent_messages() {
-        let mut app = App::new("echo-bot", "/workspace");
+        let mut app = App::new("echo-bot", "/workspace", None);
         assert!(app.send_message("hello"));
         let msgs = app.messages();
         assert_eq!(msgs.len(), 2);
@@ -195,14 +212,14 @@ mod tests {
 
     #[test]
     fn send_message_trims_whitespace() {
-        let mut app = App::new("a", "/workspace");
+        let mut app = App::new("a", "/workspace", None);
         assert!(app.send_message("  hi  "));
         assert_eq!(app.messages()[0].content, "hi");
     }
 
     #[test]
     fn send_empty_message_does_nothing() {
-        let mut app = App::new("a", "/workspace");
+        let mut app = App::new("a", "/workspace", None);
         assert!(!app.send_message(""));
         assert!(app.messages().is_empty());
         assert!(!app.send_message("   "));
@@ -211,14 +228,14 @@ mod tests {
 
     #[test]
     fn scroll_up_increases_offset() {
-        let mut app = App::new("a", "/workspace");
+        let mut app = App::new("a", "/workspace", None);
         app.scroll_up(3);
         assert_eq!(app.scroll_offset(), 3);
     }
 
     #[test]
     fn scroll_down_decreases_offset_to_zero() {
-        let mut app = App::new("a", "/workspace");
+        let mut app = App::new("a", "/workspace", None);
         app.scroll_up(5);
         app.scroll_down(3);
         assert_eq!(app.scroll_offset(), 2);
@@ -228,7 +245,7 @@ mod tests {
 
     #[test]
     fn send_message_resets_scroll() {
-        let mut app = App::new("a", "/workspace");
+        let mut app = App::new("a", "/workspace", None);
         app.scroll_up(10);
         assert!(app.send_message("new msg"));
         assert_eq!(app.scroll_offset(), 0);
@@ -236,7 +253,7 @@ mod tests {
 
     #[test]
     fn append_agent_token_updates_last_agent_message() {
-        let mut app = App::new("a", "/workspace");
+        let mut app = App::new("a", "/workspace", None);
         assert!(app.send_message("hello"));
         app.append_agent_token("he");
         app.append_agent_token("llo");
@@ -245,7 +262,7 @@ mod tests {
 
     #[test]
     fn append_agent_token_preserves_scroll_when_not_at_bottom() {
-        let mut app = App::new("a", "/workspace");
+        let mut app = App::new("a", "/workspace", None);
         assert!(app.send_message("hello"));
         app.scroll_up(3);
         app.append_agent_token("world");
@@ -254,7 +271,7 @@ mod tests {
 
     #[test]
     fn complete_stream_can_replace_content() {
-        let mut app = App::new("a", "/workspace");
+        let mut app = App::new("a", "/workspace", None);
         assert!(app.send_message("hello"));
         app.complete_stream(Some("final answer"));
         assert_eq!(app.messages()[1].content, "final answer");
@@ -263,7 +280,7 @@ mod tests {
 
     #[test]
     fn complete_stream_preserves_scroll_when_not_at_bottom() {
-        let mut app = App::new("a", "/workspace");
+        let mut app = App::new("a", "/workspace", None);
         assert!(app.send_message("hello"));
         app.scroll_up(4);
         app.complete_stream(Some("final answer"));
@@ -272,7 +289,7 @@ mod tests {
 
     #[test]
     fn push_system_message_adds_system_role() {
-        let mut app = App::new("a", "/workspace");
+        let mut app = App::new("a", "/workspace", None);
         app.push_system_message("network down");
         assert_eq!(app.messages()[0].role, Role::System);
         assert_eq!(app.messages()[0].content, "network down");
