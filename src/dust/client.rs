@@ -189,7 +189,6 @@ impl DustClient {
             let user_message_id = self
                 .post_message(&existing, &content, &self.agent_id)
                 .await?;
-            let _conversation = self.get_conversation(&existing).await?;
             (user_message_id, existing)
         } else {
             let created = self.create_conversation(&content, &self.agent_id).await?;
@@ -320,11 +319,10 @@ impl DustClient {
         conversation_id: &str,
         user_message_id: &str,
     ) -> Result<String> {
+        // Dust needs to stamp the agent reply with parentMessageId before we can stream it.
         for _ in 0..AGENT_MESSAGE_POLL_ATTEMPTS {
             let conversation = self.get_conversation(conversation_id).await?;
-            if let Some(agent_message_id) = find_agent_message(&conversation, user_message_id)
-                .or_else(|| latest_agent_message_id(&conversation))
-            {
+            if let Some(agent_message_id) = find_agent_message(&conversation, user_message_id) {
                 return Ok(agent_message_id);
             }
 
@@ -334,7 +332,13 @@ impl DustClient {
             .await;
         }
 
-        Err(anyhow!("Failed to retrieve agent message"))
+        let total_wait_secs = std::time::Duration::from_millis(
+            AGENT_MESSAGE_POLL_ATTEMPTS as u64 * AGENT_MESSAGE_POLL_INTERVAL_MS,
+        )
+        .as_secs_f64();
+        Err(anyhow!(
+            "Timed out waiting for agent message after {AGENT_MESSAGE_POLL_ATTEMPTS} attempts ({total_wait_secs:.1}s)"
+        ))
     }
 
     async fn create_conversation_body(
@@ -517,18 +521,6 @@ fn find_agent_message(conversation: &Conversation, user_message_id: &str) -> Opt
         })
 }
 
-fn latest_agent_message_id(conversation: &Conversation) -> Option<String> {
-    conversation
-        .content
-        .iter()
-        .rev()
-        .flat_map(|group| group.iter().rev())
-        .find_map(|message| match message {
-            ConversationMessage::AgentMessage { s_id, .. } => Some(s_id.clone()),
-            ConversationMessage::Other => None,
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -585,25 +577,6 @@ mod tests {
         assert_eq!(
             find_agent_message(&conversation, "user1"),
             Some("agent1".to_string())
-        );
-    }
-
-    #[test]
-    fn latest_agent_message_id_picks_last_agent_message() {
-        let conversation = Conversation {
-            s_id: "c1".to_string(),
-            content: vec![
-                vec![ConversationMessage::Other],
-                vec![ConversationMessage::AgentMessage {
-                    s_id: "agent2".to_string(),
-                    parent_message_id: None,
-                }],
-            ],
-        };
-
-        assert_eq!(
-            latest_agent_message_id(&conversation),
-            Some("agent2".to_string())
         );
     }
 

@@ -53,6 +53,7 @@ pub struct CreateConversationResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+// POST /messages always returns the created message.
 pub struct PostMessageResponse {
     pub message: MessageRef,
 }
@@ -162,6 +163,16 @@ mod tests {
             serde_json::from_str::<CreateConversationResponse>(json).expect("deserialize");
         assert_eq!(response.conversation.s_id, "c_123");
         assert_eq!(response.message.expect("message").s_id, "m_123");
+    }
+
+    #[test]
+    fn post_message_response_deserializes_message_id() {
+        let json = r#"{
+            "message": {"sId": "m_456"}
+        }"#;
+
+        let response = serde_json::from_str::<PostMessageResponse>(json).expect("deserialize");
+        assert_eq!(response.message.s_id, "m_456");
     }
 
     #[test]
