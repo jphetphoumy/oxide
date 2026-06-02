@@ -137,7 +137,8 @@ async fn run_tui() -> io::Result<()> {
                 });
             } else {
                 let _ = dust_tx.send(DustEvent::Error(
-                    "Dust client is unavailable. Run `oxide login` first or set OXIDE_AGENT_ID to override the default Dust agent.".to_string(),
+                    "Dust client could not be initialised. Try running `oxide login` again."
+                        .to_string(),
                 ));
             }
         }

@@ -202,6 +202,19 @@ mod tests {
     }
 
     #[test]
+    fn apply_submit_returns_content_in_outcome() {
+        let mut app = App::new("a");
+        let mut input = InputBuffer::new();
+        input.insert_char('h');
+        input.insert_char('i');
+
+        let outcome = apply_action(&mut app, &mut input, Action::Submit);
+
+        assert_eq!(outcome.submit, Some("hi".to_string()));
+        assert!(input.is_empty());
+    }
+
+    #[test]
     fn apply_scroll_up() {
         let mut app = App::new("a");
         let mut input = InputBuffer::new();

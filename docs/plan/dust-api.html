@@ -255,7 +255,8 @@
     <span class="method method-get">GET</span>
     <span class="endpoint-path">/api/sse/v1/w/{wId}/assistant/conversations/{cId}/messages/{mId}/events</span>
   </div>
-  <p>Server-Sent Events stream. Key event types:</p>
+  <p>Server-Sent Events stream. Dust's client uses the <code>/api/sse/v1/</code> prefix here,
+  so Oxide follows that observed route rather than the standard REST prefix. Key event types:</p>
   <table>
     <tr><th>Event type</th><th>Description</th></tr>
     <tr><td><code>generation_tokens</code></td><td>Text tokens (classification: <code>tokens</code> or <code>chain_of_thought</code>)</td></tr>
@@ -340,7 +341,7 @@ grant_type=refresh_token&amp;client_id={CLIENT_ID}&amp;refresh_token={stored_ref
     <tr><td><code>Authorization</code></td><td><code>Bearer {token}</code></td><td>JWT access token from OAuth</td></tr>
     <tr><td><code>Content-Type</code></td><td><code>application/json</code></td><td>On POST requests</td></tr>
     <tr><td><code>User-Agent</code></td><td><code>Dust CLI</code></td><td>Same as official CLI — used for billing tracking</td></tr>
-    <tr><td><code>X-Dust-CLI-Version</code></td><td><code>0.4.5</code></td><td>Matches the official CLI request signature</td></tr>
+    <tr><td><code>X-Dust-CLI-Version</code></td><td><code>0.4.5</code></td><td>Matches the official Dust CLI request signature</td></tr>
     <tr><td><code>Accept</code></td><td><code>text/event-stream</code></td><td>On SSE streaming requests</td></tr>
   </table>
 

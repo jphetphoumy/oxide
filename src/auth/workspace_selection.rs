@@ -21,12 +21,6 @@ struct MeResponse {
 
 #[derive(Debug, Deserialize)]
 struct UserInfo {
-    #[serde(default)]
-    _username: Option<String>,
-    #[serde(rename = "fullName", default)]
-    _full_name: Option<String>,
-    #[serde(default)]
-    _email: Option<String>,
     workspaces: Vec<Workspace>,
 }
 
@@ -149,7 +143,7 @@ mod tests {
 
     #[test]
     fn parses_spaces_array() {
-        let body = r#"{"user":{"username":"alice","fullName":"Alice","email":"a@b.c","workspaces":[{"sId":"ws_123","name":"Main","role":"admin"}]}}"#;
+        let body = r#"{"user":{"workspaces":[{"sId":"ws_123","name":"Main","role":"admin"}]}}"#;
         let workspaces = parse_me_response(body).expect("parse");
         assert_eq!(
             workspaces,
@@ -163,7 +157,7 @@ mod tests {
 
     #[test]
     fn parses_root_array_and_display_name() {
-        let body = r#"{"user":{"username":"alice","workspaces":[{"sId":"ws_456","name":"Team","role":"member"}]}}"#;
+        let body = r#"{"user":{"workspaces":[{"sId":"ws_456","name":"Team","role":"member"}]}}"#;
         let workspaces = parse_me_response(body).expect("parse");
         assert_eq!(
             workspaces,
