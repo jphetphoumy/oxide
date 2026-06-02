@@ -6,6 +6,7 @@ mod dust;
 mod event;
 mod handler;
 mod input_buffer;
+mod observability;
 mod ui;
 
 use std::io;
@@ -52,6 +53,9 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let (_log_guard, log_path) = observability::init()?;
+    tracing::debug!(log_path = %log_path.display(), "starting oxide");
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -99,16 +103,33 @@ async fn run_tui() -> io::Result<()> {
             render_input(frame, &input, layout.input);
         })?;
 
-        if let Some(event) = events.next().await {
-            match event {
-                AppEvent::Key(key) => {
-                    let action = handle_key_event(key);
-                    let outcome: ActionOutcome = apply_action(&mut app, &mut input, action);
-                    if let Some(content) = outcome.submit {
-                        pending_submit = Some(content);
+        tokio::select! {
+            event = events.next() => {
+                match event {
+                    Some(AppEvent::Key(key)) => {
+                        let action = handle_key_event(key);
+                        let outcome: ActionOutcome = apply_action(&mut app, &mut input, action);
+                        if let Some(content) = outcome.submit {
+                            pending_submit = Some(content);
+                        }
                     }
+                    Some(AppEvent::Tick) => {}
+                    None => break,
                 }
-                AppEvent::Tick => {}
+            }
+            message = dust_rx.recv() => {
+                if let Some(message) = message {
+                    match message {
+                        DustEvent::Token(token) => app.append_agent_token(&token),
+                        DustEvent::Complete(content) => app.complete_stream(content.as_deref()),
+                        DustEvent::Error(error) => app.push_system_message(&error),
+                        DustEvent::ConversationCreated(conversation_id) => {
+                            app.set_conversation_id(conversation_id);
+                        }
+                    }
+                } else {
+                    break;
+                }
             }
         }
 

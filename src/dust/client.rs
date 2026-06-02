@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT};
 use tokio::sync::mpsc;
+use tracing::{debug, error, trace};
 
 use crate::auth::{token_refresh, token_storage};
 use crate::dust::stream::EventStream;
@@ -104,7 +105,12 @@ impl DustClient {
         message: &str,
         agent_id: &str,
     ) -> Result<CreateConversationResponse> {
-        self.post_message_body(message, agent_id, None)
+        debug!(
+            agent_id = %agent_id,
+            message_len = message.len(),
+            "creating Dust conversation"
+        );
+        self.create_conversation_body(message, agent_id)
             .await
             .context("failed to create Dust conversation")
     }
@@ -115,7 +121,13 @@ impl DustClient {
         message: &str,
         agent_id: &str,
     ) -> Result<PostMessageResponse> {
-        self.post_message_body(message, agent_id, Some(conversation_id))
+        debug!(
+            conversation_id = %conversation_id,
+            agent_id = %agent_id,
+            message_len = message.len(),
+            "posting Dust follow-up message"
+        );
+        self.post_message_body(conversation_id, message, agent_id)
             .await
             .context("failed to post Dust message")
     }
@@ -125,6 +137,11 @@ impl DustClient {
         conversation_id: &str,
         message_id: &str,
     ) -> Result<EventStream> {
+        debug!(
+            conversation_id = %conversation_id,
+            message_id = %message_id,
+            "opening Dust SSE stream"
+        );
         let token = token_refresh::get_valid_token().await?;
         let response = self
             .http
@@ -140,18 +157,31 @@ impl DustClient {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
+            error!(
+                conversation_id = %conversation_id,
+                message_id = %message_id,
+                %status,
+                body = %body,
+                "Dust rejected the SSE stream request"
+            );
             anyhow::bail!("Dust rejected the SSE stream request: HTTP {status} — {body}");
         }
 
         Ok(EventStream::new(response))
     }
 
+    #[allow(clippy::too_many_lines)]
     pub async fn send_message_flow(
         &self,
         conversation_id: Option<String>,
         content: String,
         tx: mpsc::UnboundedSender<DustEvent>,
     ) -> Result<()> {
+        debug!(
+            existing_conversation = conversation_id.as_deref().unwrap_or("<new>"),
+            content_len = content.len(),
+            "starting Dust message flow"
+        );
         let response = match conversation_id {
             Some(existing) => {
                 self.post_message(&existing, &content, &self.agent_id)
@@ -168,11 +198,21 @@ impl DustClient {
             .ok_or_else(|| anyhow!("Dust response did not include a message id"))?
             .to_string();
 
+        debug!(
+            conversation_id = %conversation_id,
+            user_message_id = %message_id,
+            "Dust conversation created"
+        );
         let _ = tx.send(DustEvent::ConversationCreated(conversation_id.clone()));
 
         let agent_message_id = self
             .wait_for_agent_message(&conversation_id, &message_id)
             .await?;
+        debug!(
+            conversation_id = %conversation_id,
+            agent_message_id = %agent_message_id,
+            "Dust agent message is ready"
+        );
         let mut stream = self
             .stream_events(&conversation_id, &agent_message_id)
             .await?;
@@ -182,13 +222,28 @@ impl DustClient {
                     text,
                     classification,
                 } if classification == "tokens" => {
+                    trace!(
+                        conversation_id = %conversation_id,
+                        token_len = text.len(),
+                        "received Dust token chunk"
+                    );
                     let _ = tx.send(DustEvent::Token(text));
                 }
                 StreamEvent::AgentMessageSuccess { message } => {
+                    debug!(
+                        conversation_id = %conversation_id,
+                        "Dust agent message completed"
+                    );
                     let _ = tx.send(DustEvent::Complete(message.content));
                     return Ok(());
                 }
                 StreamEvent::AgentError { error } => {
+                    error!(
+                        conversation_id = %conversation_id,
+                        code = ?error.code,
+                        message = %error.message,
+                        "Dust agent error"
+                    );
                     let _ = tx.send(DustEvent::Error(format!(
                         "Dust agent error: {}",
                         error.message
@@ -196,6 +251,12 @@ impl DustClient {
                     return Ok(());
                 }
                 StreamEvent::UserMessageError { error } => {
+                    error!(
+                        conversation_id = %conversation_id,
+                        code = ?error.code,
+                        message = %error.message,
+                        "Dust user message error"
+                    );
                     let _ = tx.send(DustEvent::Error(format!(
                         "Dust message error: {}",
                         error.message
@@ -203,6 +264,10 @@ impl DustClient {
                     return Ok(());
                 }
                 StreamEvent::AgentGenerationCancelled => {
+                    debug!(
+                        conversation_id = %conversation_id,
+                        "Dust agent generation cancelled"
+                    );
                     let _ = tx.send(DustEvent::Complete(None));
                     return Ok(());
                 }
@@ -212,6 +277,10 @@ impl DustClient {
             }
         }
 
+        debug!(
+            conversation_id = %conversation_id,
+            "Dust stream ended without a terminal event"
+        );
         let _ = tx.send(DustEvent::Complete(None));
         Ok(())
     }
@@ -264,56 +333,112 @@ impl DustClient {
         Err(anyhow!("Failed to retrieve agent message"))
     }
 
-    async fn post_message_body(
+    async fn create_conversation_body(
         &self,
         message: &str,
         agent_id: &str,
-        conversation_id: Option<&str>,
     ) -> Result<CreateConversationResponse> {
         let body = CreateConversationRequest {
-            title: conversation_id
-                .is_none()
-                .then(|| conversation_title(message)),
+            title: Some(conversation_title(message)),
             visibility: DEFAULT_VISIBILITY.to_string(),
-            message: MessageBody {
-                content: message.to_string(),
-                mentions: vec![Mention {
-                    configuration_id: agent_id.to_string(),
-                }],
-                context: MessageContext {
-                    timezone: self.user_context.timezone.clone(),
-                    username: self.user_context.username.clone(),
-                    origin: DEFAULT_ORIGIN.to_string(),
-                    email: self.user_context.email.clone(),
-                    full_name: self.user_context.full_name.clone(),
-                },
-            },
+            message: self.message_body(message, agent_id),
         };
 
-        let path = conversation_id.map_or_else(
-            || format!("/api/v1/w/{}/assistant/conversations", self.workspace_id),
-            |conversation_id| {
-                format!(
-                    "/api/v1/w/{}/assistant/conversations/{conversation_id}/messages",
-                    self.workspace_id
-                )
-            },
-        );
+        self.send_message_request(
+            &format!("/api/v1/w/{}/assistant/conversations", self.workspace_id),
+            "create conversation",
+            &body,
+        )
+        .await
+    }
 
+    async fn post_message_body(
+        &self,
+        conversation_id: &str,
+        message: &str,
+        agent_id: &str,
+    ) -> Result<CreateConversationResponse> {
+        let body = self.message_body(message, agent_id);
+
+        self.send_message_request(
+            &format!(
+                "/api/v1/w/{}/assistant/conversations/{conversation_id}/messages",
+                self.workspace_id
+            ),
+            "post message",
+            &body,
+        )
+        .await
+    }
+
+    fn message_body(&self, message: &str, agent_id: &str) -> MessageBody {
+        MessageBody {
+            content: message.to_string(),
+            mentions: vec![Mention {
+                configuration_id: agent_id.to_string(),
+            }],
+            context: MessageContext {
+                timezone: self.user_context.timezone.clone(),
+                username: self.user_context.username.clone(),
+                origin: DEFAULT_ORIGIN.to_string(),
+                email: self.user_context.email.clone(),
+                full_name: self.user_context.full_name.clone(),
+            },
+        }
+    }
+
+    async fn send_message_request<T: serde::Serialize + Sync>(
+        &self,
+        path: &str,
+        action: &str,
+        body: &T,
+    ) -> Result<CreateConversationResponse> {
         let token = token_refresh::get_valid_token().await?;
-        self.http
-            .post(self.url(&path))
+        let body_json =
+            serde_json::to_string(body).context("failed to serialize Dust request body")?;
+        debug!(path = %path, action = %action, body = %body_json, "sending Dust request");
+        let response = self
+            .http
+            .post(self.url(path))
             .header(CONTENT_TYPE, "application/json")
             .bearer_auth(token)
-            .json(&body)
+            .body(body_json)
             .send()
-            .await
-            .context("failed to send Dust message request")?
-            .error_for_status()
-            .context("Dust rejected the message request")?
-            .json()
-            .await
-            .context("failed to decode Dust message response")
+            .await;
+
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                error!(path = %path, action = %action, error = %error, "Dust request send failed");
+                return Err(error).with_context(|| format!("failed to send Dust {action} request"));
+            }
+        };
+
+        let status = response.status();
+        let body_text = response.text().await;
+
+        let body_text = match body_text {
+            Ok(body_text) => body_text,
+            Err(error) => {
+                error!(path = %path, action = %action, error = %error, "Dust response read failed");
+                return Err(error)
+                    .with_context(|| format!("failed to read Dust {action} response"));
+            }
+        };
+
+        if !status.is_success() {
+            error!(
+                path = %path,
+                %status,
+                body = %body_text,
+                "Dust request rejected"
+            );
+            anyhow::bail!("Dust rejected the {action} request: HTTP {status} — {body_text}");
+        }
+
+        debug!(path = %path, %status, "Dust request succeeded");
+        serde_json::from_str(&body_text)
+            .with_context(|| format!("failed to decode Dust {action} response"))
     }
 
     fn url(&self, path: &str) -> String {
