@@ -187,6 +187,12 @@
     <li><strong>User-Agent header:</strong> <code>"User-Agent: Dust CLI"</code> — same as the official CLI,
     used by Dust for billing and usage tracking.</li>
     <li><strong>API structure:</strong> same REST endpoints, same JSON shapes, same SSE streaming protocol.</li>
+    <li><strong>Default agent config:</strong> read <code>~/.config/oxide/config.toml</code> and use
+    <code>[dust].agent_id</code> when no <code>OXIDE_AGENT_ID</code> override is set.</li>
+    <li><strong>Conversation title:</strong> new conversations use the CLI prefix
+    <code>CLI Question: &lt;first 30 chars&gt;...</code>, matching the official client.</li>
+    <li><strong>Workspace selection:</strong> after login, fetch <code>/api/v1/me</code>, present the user's workspaces,
+    and store the selected <code>workspace_id</code> for later API calls.</li>
   </ul>
 
   <h4>What we do differently</h4>
@@ -218,7 +224,7 @@
     <span class="endpoint-path">/api/v1/w/{wId}/assistant/conversations</span>
   </div>
   <pre><code>{
-  "title": "Oxide: &lt;first 30 chars&gt;...",
+  "title": "CLI Question: &lt;first 30 chars&gt;...",
   "visibility": "unlisted",
   "message": {
     "content": "user message text",
@@ -233,7 +239,8 @@
   }
 }</code></pre>
   <p>Creates a new conversation with the first user message. Returns <code>conversation.sId</code>
-  and <code>message.sId</code> (the user message ID, needed to find the agent reply for streaming).</p>
+  and <code>message.sId</code> (the user message ID, needed to find the agent reply for streaming).
+  The CLI sets the title itself before sending the request.</p>
 
   <h4>Post follow-up message</h4>
   <div class="endpoint">
@@ -246,9 +253,10 @@
   <h4>Stream agent answer events (SSE)</h4>
   <div class="endpoint">
     <span class="method method-get">GET</span>
-    <span class="endpoint-path">/api/v1/w/{wId}/assistant/conversations/{cId}/messages/{mId}/events</span>
+    <span class="endpoint-path">/api/sse/v1/w/{wId}/assistant/conversations/{cId}/messages/{mId}/events</span>
   </div>
-  <p>Server-Sent Events stream. Key event types:</p>
+  <p>Server-Sent Events stream. Dust's client uses the <code>/api/sse/v1/</code> prefix here,
+  so Oxide follows that observed route rather than the standard REST prefix. Key event types:</p>
   <table>
     <tr><th>Event type</th><th>Description</th></tr>
     <tr><td><code>generation_tokens</code></td><td>Text tokens (classification: <code>tokens</code> or <code>chain_of_thought</code>)</td></tr>
@@ -263,7 +271,9 @@
     <span class="method method-get">GET</span>
     <span class="endpoint-path">/api/v1/w/{wId}/assistant/conversations/{cId}</span>
   </div>
-  <p>Retrieve full conversation (needed after posting a follow-up message to find the agent message ID for streaming).</p>
+  <p>Retrieve full conversation (needed after posting a follow-up message to find the agent message ID for streaming).
+  Oxide polls this endpoint until the agent message appears, then streams
+  <code>/messages/{agentMessageId}/events</code>.</p>
 </div>
 
 <!-- ─── AUTH & HEADERS ─── -->
@@ -286,8 +296,9 @@
       Handle <code>authorization_pending</code> (keep polling) and <code>slow_down</code> (back off +5s).</li>
     <li><strong>Token received:</strong> Store <code>access_token</code> and <code>refresh_token</code> in the OS keyring.
       Decode the JWT to extract the region from the <code>https://dust.tt/region</code> claim.</li>
-    <li><strong>Workspace selection:</strong> Call <code>GET /api/v1/w/me/spaces</code> or similar
-      to let the user pick a workspace, then store <code>workspace_id</code> in the keyring.</li>
+    <li><strong>Workspace selection:</strong> Call <code>GET /api/v1/me</code>, read the user's
+      <code>workspaces</code> list, prompt if there is more than one, and store the chosen
+      <code>workspace_id</code> in the keyring.</li>
   </ol>
 
   <h4>Token refresh</h4>
@@ -330,6 +341,7 @@ grant_type=refresh_token&amp;client_id={CLIENT_ID}&amp;refresh_token={stored_ref
     <tr><td><code>Authorization</code></td><td><code>Bearer {token}</code></td><td>JWT access token from OAuth</td></tr>
     <tr><td><code>Content-Type</code></td><td><code>application/json</code></td><td>On POST requests</td></tr>
     <tr><td><code>User-Agent</code></td><td><code>Dust CLI</code></td><td>Same as official CLI — used for billing tracking</td></tr>
+    <tr><td><code>X-Dust-CLI-Version</code></td><td><code>0.4.5</code></td><td>Matches the official Dust CLI request signature</td></tr>
     <tr><td><code>Accept</code></td><td><code>text/event-stream</code></td><td>On SSE streaming requests</td></tr>
   </table>
 
@@ -337,6 +349,11 @@ grant_type=refresh_token&amp;client_id={CLIENT_ID}&amp;refresh_token={stored_ref
   <p>Every message body includes a <code>context</code> object with <code>"origin": "cli"</code>.
   This is what the Dust CLI sends and is how Dust tracks CLI usage. We keep the same value
   so our traffic is recognized as CLI-originating.</p>
+
+  <h4>Streaming payload shape</h4>
+  <p>The SSE transport uses Dust's envelope shape, where each event frame contains an
+  <code>eventId</code> and a nested <code>data</code> payload. Oxide unwraps that envelope before
+  deserializing the inner Dust event object.</p>
 </div>
 
 <!-- ─── DEPENDENCIES ─── -->
@@ -386,25 +403,18 @@ grant_type=refresh_token&amp;client_id={CLIENT_ID}&amp;refresh_token={stored_ref
   <span class="tag tag-new">src/config.rs</span>
   <h4>Config struct</h4>
   <pre><code>pub struct Config {
-    pub agent_id: Option&lt;String&gt;,  // default agent to mention
-    pub base_url: String,           // resolved from region or override
+    pub dust: DustConfig,
 }
 
-/// Runtime auth state — populated after login
-pub struct AuthState {
-    pub access_token: String,       // JWT from OAuth
-    pub workspace_id: String,
-    pub region: String,             // "us-central1" or "europe-west1"
+pub struct DustConfig {
+    pub agent_id: Option&lt;String&gt;,   // default agent to mention
 }</code></pre>
 
   <h4>Config file: <code>~/.config/oxide/config.toml</code></h4>
   <pre><code>[dust]
 agent_id = "..."             # optional — default agent to @mention
 
-[user]
-username = "jphetphoumy"     # for message context
-email = "..."                # optional
-full_name = "..."            # optional</code></pre>
+// Any missing keys fall back to the built-in defaults.</code></pre>
 
   <h4>Auth resolution</h4>
   <ol>
@@ -478,16 +488,15 @@ pub async fn get_fresh_token() -&gt; Result&lt;String&gt;;</code></pre>
     http: reqwest::Client,
     base_url: String,
     workspace_id: String,
-    api_key: String,
+    agent_id: String,
     user_context: UserContext,
 }
 
 impl DustClient {
-    pub fn new(config: &amp;Config) -&gt; Self;
-    pub async fn list_agents(&amp;self) -&gt; Result&lt;Vec&lt;AgentConfig&gt;&gt;;
+    pub fn from_env() -&gt; Result&lt;Self&gt;;
+    pub fn new(base_url: String, workspace_id: String, agent_id: String, user_context: UserContext) -&gt; Result&lt;Self&gt;;
     pub async fn create_conversation(&amp;self, msg: &amp;str, agent_id: &amp;str) -&gt; Result&lt;CreateConversationResponse&gt;;
     pub async fn post_message(&amp;self, conv_id: &amp;str, msg: &amp;str, agent_id: &amp;str) -&gt; Result&lt;PostMessageResponse&gt;;
-    pub async fn get_conversation(&amp;self, conv_id: &amp;str) -&gt; Result&lt;ConversationResponse&gt;;
     pub async fn stream_events(&amp;self, conv_id: &amp;str, msg_id: &amp;str) -&gt; Result&lt;EventStream&gt;;
 }</code></pre>
 
@@ -658,13 +667,11 @@ impl EventStream {
     messages: Vec&lt;Message&gt;,
     scroll_offset: usize,
     agent_name: String,
-    model: String,
     should_quit: bool,
 
     // NEW — Dust state
     conversation_id: Option&lt;String&gt;,   // set after first message
     is_streaming: bool,                 // true while receiving tokens
-    pending_agent_content: String,      // accumulates tokens during streaming
 }</code></pre>
 
   <h4>Message flow</h4>
@@ -714,7 +721,7 @@ impl EventStream {
   <h4>Status bar</h4>
   <ul>
     <li>Show agent name from config (or selected agent) instead of hardcoded value</li>
-    <li>Show "streaming..." indicator while receiving tokens</li>
+    <li>Show "streaming..." indicator only in the status bar while receiving tokens</li>
   </ul>
 </div>
 
@@ -739,7 +746,7 @@ impl EventStream {
     <tr>
       <td>3</td>
       <td>Dust client + types</td>
-      <td><code>DustClient</code> with dynamic auth headers, <code>list_agents()</code> works against real API.
+      <td><code>DustClient</code> with dynamic auth headers and real conversation streaming.
       All request/response types defined.</td>
       <td><code>feat/dust-client</code></td>
     </tr>
@@ -790,7 +797,7 @@ impl EventStream {
   <ul>
     <li>Full OAuth login flow, verify tokens stored in keyring</li>
     <li>Token refresh after manual expiry</li>
-    <li>Create conversation, verify response shape</li>
+    <li>Create conversation, verify response shape and title prefix</li>
     <li>Stream events, verify tokens arrive</li>
     <li>Post follow-up message</li>
   </ul>

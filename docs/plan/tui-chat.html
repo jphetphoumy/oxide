@@ -229,7 +229,7 @@
   <span class="tag tag-new">app.rs</span>
   <ul>
     <li><code>Message { role: Role, content: String }</code> — <code>Role</code> is <code>User | Agent(name)</code></li>
-    <li><code>App { messages: Vec&lt;Message&gt;, scroll: usize, agent_name: String, model: String, should_quit: bool }</code></li>
+    <li><code>App { messages: Vec&lt;Message&gt;, scroll: usize, agent_name: String, should_quit: bool }</code></li>
     <li>Methods: <code>send_message()</code>, <code>scroll_up()</code>, <code>scroll_down()</code>, <code>quit()</code></li>
     <li>For now, <code>send_message</code> pushes the user message and immediately pushes a mock assistant reply (echo)</li>
   </ul>
@@ -242,12 +242,12 @@
   <ul>
     <li>Vertical split: <code>[Min(5), Length(3)]</code> — messages area takes remaining space, input has fixed height (expandable later)</li>
     <li>Top bar: <code>Length(1)</code> for title ("Oxide")</li>
-    <li>Bottom status line: <code>Length(1)</code> — shows model name (left) + keybinding hints (right)</li>
+    <li>Bottom status line: <code>Length(1)</code> — shows agent name (left) + keybinding hints (right)</li>
   </ul>
   <pre><code>Constraint::Length(1),   // title bar
 Constraint::Min(5),      // messages (fills remaining)
 Constraint::Length(3),   // input box
-Constraint::Length(1),   // status line (model + hints)</code></pre>
+Constraint::Length(1),   // status line (agent + hints)</code></pre>
 </div>
 
 <!-- ─── STEP 4 ─── -->

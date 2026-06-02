@@ -52,14 +52,20 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
     )]));
     frame.render_widget(title, chunks[0]);
 
-    // Status line: model on left, hints on right
-    let model_text = format!(" model: {}", app.model());
+    // Status line: agent on left, hints on right
+    let model_text = format!(" agent: {}", app.agent_name());
+    let streaming_text = if app.is_streaming() {
+        " streaming..."
+    } else {
+        ""
+    };
     let hints = "Ctrl+C quit  Enter send  Alt+Enter newline";
-    let padding = area
-        .width
-        .saturating_sub(u16::try_from(model_text.len() + hints.len()).unwrap_or(area.width));
+    let padding = area.width.saturating_sub(
+        u16::try_from(model_text.len() + streaming_text.len() + hints.len()).unwrap_or(area.width),
+    );
     let status_line = Line::from(vec![
         Span::styled(model_text, Style::default().fg(Color::DarkGray)),
+        Span::styled(streaming_text, Style::default().fg(Color::Yellow)),
         Span::raw(" ".repeat(padding.into())),
         Span::styled(hints, Style::default().fg(Color::DarkGray)),
     ]);

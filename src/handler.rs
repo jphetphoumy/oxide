@@ -41,12 +41,21 @@ pub fn handle_key_event(key: KeyEvent) -> Action {
     }
 }
 
-pub fn apply_action(app: &mut App, input: &mut InputBuffer, action: Action) {
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ActionOutcome {
+    pub submit: Option<String>,
+}
+
+pub fn apply_action(app: &mut App, input: &mut InputBuffer, action: Action) -> ActionOutcome {
+    let mut outcome = ActionOutcome::default();
+
     match action {
         Action::Quit => app.quit(),
         Action::Submit => {
             let content = input.take();
-            app.send_message(&content);
+            if app.send_message(&content) {
+                outcome.submit = Some(content);
+            }
         }
         Action::InsertChar(c) => input.insert_char(c),
         Action::InsertNewline => input.insert_newline(),
@@ -60,6 +69,8 @@ pub fn apply_action(app: &mut App, input: &mut InputBuffer, action: Action) {
         Action::ScrollDown(n) => app.scroll_down(n),
         Action::None => {}
     }
+
+    outcome
 }
 
 #[cfg(test)]
@@ -174,46 +185,51 @@ mod tests {
 
     #[test]
     fn apply_quit_sets_should_quit() {
-        let mut app = App::new("a", "m");
+        let mut app = App::new("a");
         let mut input = InputBuffer::new();
-        apply_action(&mut app, &mut input, Action::Quit);
+        let outcome = apply_action(&mut app, &mut input, Action::Quit);
+        assert_eq!(outcome, ActionOutcome::default());
         assert!(app.should_quit());
     }
 
     #[test]
-    fn apply_submit_sends_message() {
-        let mut app = App::new("a", "m");
-        let mut input = InputBuffer::new();
-        input.insert_char('h');
-        input.insert_char('i');
-        apply_action(&mut app, &mut input, Action::Submit);
-        assert_eq!(app.messages().len(), 2);
-        assert_eq!(app.messages()[0].content, "hi");
-        assert!(input.is_empty());
-    }
-
-    #[test]
     fn apply_insert_char() {
-        let mut app = App::new("a", "m");
+        let mut app = App::new("a");
         let mut input = InputBuffer::new();
-        apply_action(&mut app, &mut input, Action::InsertChar('x'));
+        let outcome = apply_action(&mut app, &mut input, Action::InsertChar('x'));
+        assert_eq!(outcome, ActionOutcome::default());
         assert_eq!(input.content(), "x");
     }
 
     #[test]
-    fn apply_scroll_up() {
-        let mut app = App::new("a", "m");
+    fn apply_submit_returns_content_in_outcome() {
+        let mut app = App::new("a");
         let mut input = InputBuffer::new();
-        apply_action(&mut app, &mut input, Action::ScrollUp(5));
+        input.insert_char('h');
+        input.insert_char('i');
+
+        let outcome = apply_action(&mut app, &mut input, Action::Submit);
+
+        assert_eq!(outcome.submit, Some("hi".to_string()));
+        assert!(input.is_empty());
+    }
+
+    #[test]
+    fn apply_scroll_up() {
+        let mut app = App::new("a");
+        let mut input = InputBuffer::new();
+        let outcome = apply_action(&mut app, &mut input, Action::ScrollUp(5));
+        assert_eq!(outcome, ActionOutcome::default());
         assert_eq!(app.scroll_offset(), 5);
     }
 
     #[test]
     fn apply_scroll_down() {
-        let mut app = App::new("a", "m");
+        let mut app = App::new("a");
         let mut input = InputBuffer::new();
         app.scroll_up(10);
-        apply_action(&mut app, &mut input, Action::ScrollDown(3));
+        let outcome = apply_action(&mut app, &mut input, Action::ScrollDown(3));
+        assert_eq!(outcome, ActionOutcome::default());
         assert_eq!(app.scroll_offset(), 7);
     }
 }

@@ -16,6 +16,7 @@ pub fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
         let (label, color) = match &msg.role {
             Role::User => ("you".to_string(), Color::Green),
             Role::Agent(name) => (format!("@{name}"), Color::Yellow),
+            Role::System => ("system".to_string(), Color::Red),
         };
 
         lines.push(Line::from(""));
