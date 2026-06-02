@@ -60,11 +60,10 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
     };
     let agent_text = format!(" agent: {}", app.agent_name());
     let cwd_room = usize::from(area.width).saturating_sub(
-        agent_text.chars().count() + streaming_text.chars().count() + hints.chars().count() + 2,
+        agent_text.chars().count() + streaming_text.chars().count() + hints.chars().count() + 2, // ", " separator
     );
     let cwd_text = format_cwd_display(app.cwd(), app.home_dir(), cwd_room);
     let cwd_separator = if cwd_text.is_empty() { "" } else { ", " };
-    let cwd_style = Style::default().fg(Color::Cyan);
     let hint_width = agent_text.chars().count()
         + cwd_separator.chars().count()
         + cwd_text.chars().count()
@@ -82,7 +81,7 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
             cwd_separator,
             Style::default().fg(Color::DarkGray),
         ));
-        spans.push(Span::styled(cwd_text, cwd_style));
+        spans.push(Span::styled(cwd_text, Style::default().fg(Color::Cyan)));
     }
     spans.push(Span::styled(
         streaming_text,
