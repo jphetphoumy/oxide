@@ -3,6 +3,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use std::path::Path;
 
 use crate::app::App;
 
@@ -45,30 +46,50 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
     ])
     .split(area);
 
-    // Title bar
     let title = Paragraph::new(Line::from(vec![Span::styled(
         " Oxide",
         Style::default().fg(Color::Cyan),
     )]));
     frame.render_widget(title, chunks[0]);
 
-    // Status line: agent on left, hints on right
-    let model_text = format!(" agent: {}", app.agent_name());
+    let hints = "Ctrl+C quit  Enter send  Alt+Enter newline";
     let streaming_text = if app.is_streaming() {
         " streaming..."
     } else {
         ""
     };
-    let hints = "Ctrl+C quit  Enter send  Alt+Enter newline";
-    let padding = area.width.saturating_sub(
-        u16::try_from(model_text.len() + streaming_text.len() + hints.len()).unwrap_or(area.width),
+    let agent_text = format!(" agent: {}", app.agent_name());
+    let cwd_room = usize::from(area.width).saturating_sub(
+        agent_text.chars().count() + streaming_text.chars().count() + hints.chars().count() + 2, // ", " separator
     );
-    let status_line = Line::from(vec![
-        Span::styled(model_text, Style::default().fg(Color::DarkGray)),
-        Span::styled(streaming_text, Style::default().fg(Color::Yellow)),
-        Span::raw(" ".repeat(padding.into())),
-        Span::styled(hints, Style::default().fg(Color::DarkGray)),
-    ]);
+    let cwd_text = format_cwd_display(app.cwd(), app.home_dir(), cwd_room);
+    let cwd_separator = if cwd_text.is_empty() { "" } else { ", " };
+    let hint_width = agent_text.chars().count()
+        + cwd_separator.chars().count()
+        + cwd_text.chars().count()
+        + streaming_text.chars().count()
+        + hints.chars().count();
+    let padding = area
+        .width
+        .saturating_sub(u16::try_from(hint_width).unwrap_or(area.width));
+    let mut spans = vec![Span::styled(
+        agent_text,
+        Style::default().fg(Color::DarkGray),
+    )];
+    if !cwd_text.is_empty() {
+        spans.push(Span::styled(
+            cwd_separator,
+            Style::default().fg(Color::DarkGray),
+        ));
+        spans.push(Span::styled(cwd_text, Style::default().fg(Color::Cyan)));
+    }
+    spans.push(Span::styled(
+        streaming_text,
+        Style::default().fg(Color::Yellow),
+    ));
+    spans.push(Span::raw(" ".repeat(padding.into())));
+    spans.push(Span::styled(hints, Style::default().fg(Color::DarkGray)));
+    let status_line = Line::from(spans);
     frame.render_widget(Paragraph::new(status_line), chunks[3]);
 
     AppLayout {
@@ -79,9 +100,58 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
     }
 }
 
+fn format_cwd_display(cwd: &Path, home_dir: Option<&Path>, max_width: usize) -> String {
+    let raw = home_dir.map_or_else(
+        || cwd.display().to_string(),
+        |home_dir| {
+            cwd.strip_prefix(home_dir).map_or_else(
+                |_| cwd.display().to_string(),
+                |relative| {
+                    if relative.as_os_str().is_empty() {
+                        "~".to_string()
+                    } else {
+                        format!("~/{}", relative.display())
+                    }
+                },
+            )
+        },
+    );
+
+    shorten_path_display(&raw, max_width)
+}
+
+fn shorten_path_display(display: &str, max_width: usize) -> String {
+    if max_width == 0 {
+        return String::new();
+    }
+
+    let chars: Vec<char> = display.chars().collect();
+    if chars.len() <= max_width {
+        return display.to_string();
+    }
+
+    if max_width <= 3 {
+        return chars.into_iter().take(max_width).collect();
+    }
+
+    if let Some(last_segment) = display.rsplit(std::path::MAIN_SEPARATOR).next() {
+        let last_segment_len = last_segment.chars().count();
+        if last_segment_len + 4 <= max_width {
+            return format!("...{}{last_segment}", std::path::MAIN_SEPARATOR);
+        }
+    }
+
+    let tail_len = max_width - 3;
+    let tail: String = chars[chars.len().saturating_sub(tail_len)..]
+        .iter()
+        .collect();
+    format!("...{tail}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     fn s(text: &str) -> String {
         text.to_string()
@@ -136,5 +206,37 @@ mod tests {
         // terminal height 4 → max = max(4/2, 3) = 3
         // even on a tiny terminal, input gets at least 3 rows
         assert_eq!(input_height(&[s("hello")], 80, 4), 3);
+    }
+
+    #[test]
+    fn format_cwd_display_replaces_home_prefix_with_tilde() {
+        let cwd = Path::new("/home/alice/projects/oxide");
+        let home = Path::new("/home/alice");
+        assert_eq!(format_cwd_display(cwd, Some(home), 80), "~/projects/oxide");
+    }
+
+    #[test]
+    fn format_cwd_display_truncates_to_last_segment_when_needed() {
+        let cwd = Path::new("/home/alice/projects/oxide");
+        let home = Path::new("/home/alice");
+        assert_eq!(format_cwd_display(cwd, Some(home), 12), ".../oxide");
+    }
+
+    #[test]
+    fn shorten_path_display_handles_zero_width() {
+        assert_eq!(shorten_path_display("abcdef", 0), "");
+    }
+
+    #[test]
+    fn shorten_path_display_keeps_prefix_for_tiny_widths() {
+        assert_eq!(shorten_path_display("abcdef", 3), "abc");
+    }
+
+    #[test]
+    fn shorten_path_display_uses_raw_tail_when_needed() {
+        assert_eq!(
+            shorten_path_display("/home/alice/projects/oxide", 8),
+            "...oxide"
+        );
     }
 }
