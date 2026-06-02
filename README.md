@@ -24,6 +24,14 @@ oxide run
 oxide agent
 ```
 
+Oxide reads an optional config file at `~/.config/oxide/config.toml`. The `dust.agent_id`
+setting provides the default Dust agent when `OXIDE_AGENT_ID` is not set:
+
+```toml
+[dust]
+agent_id = "dust"
+```
+
 ## Development
 
 Requires [Nix](https://nixos.org/):

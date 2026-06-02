@@ -5,6 +5,7 @@ use serde::Deserialize;
 
 use crate::auth::jwt::decode_payload;
 use crate::auth::token_storage;
+use crate::auth::workspace_selection;
 
 pub const WORKOS_AUTHORIZE_DEVICE_URL: &str =
     "https://api.workos.com/user_management/authorize/device";
@@ -12,9 +13,6 @@ pub const WORKOS_AUTHENTICATE_URL: &str = "https://api.workos.com/user_managemen
 pub const DEFAULT_WORKOS_CLIENT_ID: &str = "client_01JGCT55T7FVDG9XF74925R1KT";
 pub const OAUTH_SCOPE: &str = "openid profile email";
 pub const DEFAULT_REGION: &str = "us-central1";
-pub const DUST_CLI_USER_AGENT: &str = "Dust CLI";
-const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Deserialize)]
 pub struct DeviceCodeResponse {
@@ -163,7 +161,7 @@ pub async fn login() -> Result<()> {
     token_storage::save_access_token(&access_token)?;
     token_storage::save_refresh_token(&refresh_token)?;
     token_storage::save_region(&region)?;
-    token_storage::save_workspace_id("me")?;
+    let _ = workspace_selection::select_workspace_for_login(&http).await?;
 
     println!("Logged in successfully.");
     Ok(())
@@ -180,12 +178,7 @@ pub fn workos_client_id() -> String {
 }
 
 pub fn build_http_client() -> Result<reqwest::Client> {
-    reqwest::Client::builder()
-        .connect_timeout(HTTP_CONNECT_TIMEOUT)
-        .timeout(HTTP_REQUEST_TIMEOUT)
-        .user_agent(DUST_CLI_USER_AGENT)
-        .build()
-        .context("failed to build HTTP client")
+    crate::dust::client::build_http_client()
 }
 
 fn resolve_workos_client_id(value: Option<String>) -> String {

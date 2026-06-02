@@ -506,9 +506,10 @@ pub fn extract_region(access_token: &str) -> String {
     token_storage::save_refresh_token(&refresh_token)?;
     token_storage::save_region(&region)?;
 
-    // 6. TODO (next milestone): workspace selection
-    // For now, store "me" as workspace_id
-    token_storage::save_workspace_id("me")?;
+    // 6. Fetch the user's workspaces from /api/v1/me and prompt for one
+    // Save the selected workspace_id for later API calls
+    let workspace_id = select_workspace(&http, &access_token, &region).await?;
+    token_storage::save_workspace_id(&workspace_id)?;
 
     println!("Logged in successfully!");
     Ok(())

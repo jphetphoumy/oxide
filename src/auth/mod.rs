@@ -2,6 +2,7 @@ pub mod device_flow;
 pub mod jwt;
 pub mod token_refresh;
 pub mod token_storage;
+pub mod workspace_selection;
 
 use anyhow::Result;
 

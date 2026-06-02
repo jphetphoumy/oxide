@@ -1,6 +1,8 @@
 mod app;
 mod auth;
 mod cli;
+mod config;
+mod dust;
 mod event;
 mod handler;
 mod input_buffer;
@@ -17,11 +19,16 @@ use crossterm::terminal::{
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use tokio::sync::mpsc;
 
 use crate::app::App;
+use crate::auth::device_flow::build_http_client;
+use crate::auth::workspace_selection;
 use crate::cli::{Cli, Command};
+use crate::config::Config;
+use crate::dust::client::{DustClient, DustEvent, resolve_agent_id};
 use crate::event::{AppEvent, EventReader};
-use crate::handler::{apply_action, handle_key_event};
+use crate::handler::{ActionOutcome, apply_action, handle_key_event};
 use crate::input_buffer::InputBuffer;
 use crate::ui::{input_height, render_input, render_layout, render_messages};
 
@@ -67,12 +74,21 @@ fn install_terminal_panic_hook() {
 }
 
 async fn run_tui() -> io::Result<()> {
+    let http = build_http_client().map_err(|error| io::Error::other(error.to_string()))?;
+    workspace_selection::ensure_workspace_selected_with_client(&http)
+        .await
+        .map_err(|error| io::Error::other(error.to_string()))?;
     install_terminal_panic_hook();
 
     let mut terminal = setup_terminal()?;
-    let mut app = App::new("echo-bot", "mock");
+    let config = Config::load().map_err(|error| io::Error::other(error.to_string()))?;
+    let agent_name = resolve_agent_id(config.agent_id(), std::env::var("OXIDE_AGENT_ID").ok());
+    let mut app = App::new(&agent_name);
     let mut events = EventReader::new(Duration::from_millis(250));
     let mut input = InputBuffer::new();
+    let (dust_tx, mut dust_rx) = mpsc::unbounded_channel::<DustEvent>();
+    let client = DustClient::from_env().ok();
+    let mut pending_submit: Option<String> = None;
 
     loop {
         terminal.draw(|frame| {
@@ -87,9 +103,42 @@ async fn run_tui() -> io::Result<()> {
             match event {
                 AppEvent::Key(key) => {
                     let action = handle_key_event(key);
-                    apply_action(&mut app, &mut input, action);
+                    let outcome: ActionOutcome = apply_action(&mut app, &mut input, action);
+                    if let Some(content) = outcome.submit {
+                        pending_submit = Some(content);
+                    }
                 }
                 AppEvent::Tick => {}
+            }
+        }
+
+        while let Ok(message) = dust_rx.try_recv() {
+            match message {
+                DustEvent::Token(token) => app.append_agent_token(&token),
+                DustEvent::Complete(content) => app.complete_stream(content.as_deref()),
+                DustEvent::Error(error) => app.push_system_message(&error),
+                DustEvent::ConversationCreated(conversation_id) => {
+                    app.set_conversation_id(conversation_id);
+                }
+            }
+        }
+
+        if let Some(content) = pending_submit.take() {
+            if let Some(client) = client.clone() {
+                let conversation_id = app.conversation_id().map(ToOwned::to_owned);
+                let dust_tx = dust_tx.clone();
+                tokio::spawn(async move {
+                    if let Err(error) = client
+                        .send_message_flow(conversation_id, content, dust_tx.clone())
+                        .await
+                    {
+                        let _ = dust_tx.send(DustEvent::Error(error.to_string()));
+                    }
+                });
+            } else {
+                let _ = dust_tx.send(DustEvent::Error(
+                    "Dust client is unavailable. Run `oxide login` first or set OXIDE_AGENT_ID to override the default Dust agent.".to_string(),
+                ));
             }
         }
 
