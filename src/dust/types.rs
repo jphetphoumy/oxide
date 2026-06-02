@@ -52,7 +52,10 @@ pub struct CreateConversationResponse {
     pub message: Option<MessageRef>,
 }
 
-pub type PostMessageResponse = CreateConversationResponse;
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct PostMessageResponse {
+    pub message: MessageRef,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct AgentMessage {

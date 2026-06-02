@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT};
+use serde::de::DeserializeOwned;
 use tokio::sync::mpsc;
 use tracing::{debug, error, trace};
 
@@ -120,16 +121,18 @@ impl DustClient {
         conversation_id: &str,
         message: &str,
         agent_id: &str,
-    ) -> Result<PostMessageResponse> {
+    ) -> Result<String> {
         debug!(
             conversation_id = %conversation_id,
             agent_id = %agent_id,
             message_len = message.len(),
             "posting Dust follow-up message"
         );
-        self.post_message_body(conversation_id, message, agent_id)
+        let response: PostMessageResponse = self
+            .post_message_body(conversation_id, message, agent_id)
             .await
-            .context("failed to post Dust message")
+            .context("failed to post Dust message")?;
+        Ok(response.message.s_id)
     }
 
     pub async fn stream_events(
@@ -182,31 +185,32 @@ impl DustClient {
             content_len = content.len(),
             "starting Dust message flow"
         );
-        let response = match conversation_id {
-            Some(existing) => {
-                self.post_message(&existing, &content, &self.agent_id)
-                    .await?
-            }
-            None => self.create_conversation(&content, &self.agent_id).await?,
+        let (user_message_id, conversation_id) = if let Some(existing) = conversation_id {
+            let user_message_id = self
+                .post_message(&existing, &content, &self.agent_id)
+                .await?;
+            let _conversation = self.get_conversation(&existing).await?;
+            (user_message_id, existing)
+        } else {
+            let created = self.create_conversation(&content, &self.agent_id).await?;
+            let conversation_id = created.conversation.s_id.clone();
+            let user_message_id = created
+                .message
+                .as_ref()
+                .map(|message| message.s_id.clone())
+                .ok_or_else(|| anyhow!("Dust response did not include a message id"))?;
+            (user_message_id, conversation_id)
         };
-
-        let conversation_id = response.conversation.s_id.clone();
-        let message_id = response
-            .message
-            .as_ref()
-            .map(|message| message.s_id.as_str())
-            .ok_or_else(|| anyhow!("Dust response did not include a message id"))?
-            .to_string();
 
         debug!(
             conversation_id = %conversation_id,
-            user_message_id = %message_id,
-            "Dust conversation created"
+            user_message_id = %user_message_id,
+            "Dust conversation is ready"
         );
         let _ = tx.send(DustEvent::ConversationCreated(conversation_id.clone()));
 
         let agent_message_id = self
-            .wait_for_agent_message(&conversation_id, &message_id)
+            .wait_for_agent_message(&conversation_id, &user_message_id)
             .await?;
         debug!(
             conversation_id = %conversation_id,
@@ -357,7 +361,7 @@ impl DustClient {
         conversation_id: &str,
         message: &str,
         agent_id: &str,
-    ) -> Result<CreateConversationResponse> {
+    ) -> Result<PostMessageResponse> {
         let body = self.message_body(message, agent_id);
 
         self.send_message_request(
@@ -387,12 +391,11 @@ impl DustClient {
         }
     }
 
-    async fn send_message_request<T: serde::Serialize + Sync>(
-        &self,
-        path: &str,
-        action: &str,
-        body: &T,
-    ) -> Result<CreateConversationResponse> {
+    async fn send_message_request<T, R>(&self, path: &str, action: &str, body: &T) -> Result<R>
+    where
+        T: serde::Serialize + Sync,
+        R: DeserializeOwned,
+    {
         let token = token_refresh::get_valid_token().await?;
         let body_json =
             serde_json::to_string(body).context("failed to serialize Dust request body")?;
