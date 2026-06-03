@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 
 use crate::app::App;
 use crate::input_buffer::InputBuffer;
@@ -23,6 +23,7 @@ pub enum Action {
 }
 
 const SCROLL_LINES: usize = 5;
+const MOUSE_SCROLL_LINES: usize = 3;
 
 #[allow(clippy::missing_const_for_fn)] // match guard prevents const
 pub fn handle_key_event(key: KeyEvent) -> Action {
@@ -40,6 +41,15 @@ pub fn handle_key_event(key: KeyEvent) -> Action {
         (KeyCode::PageUp, _) => Action::ScrollUp(SCROLL_LINES),
         (KeyCode::PageDown, _) => Action::ScrollDown(SCROLL_LINES),
         (KeyCode::Char(c), _) => Action::InsertChar(c),
+        _ => Action::None,
+    }
+}
+
+#[allow(clippy::missing_const_for_fn)] // enum matching prevents const
+pub fn handle_mouse_event(mouse: MouseEvent) -> Action {
+    match mouse.kind {
+        MouseEventKind::ScrollUp => Action::ScrollUp(MOUSE_SCROLL_LINES),
+        MouseEventKind::ScrollDown => Action::ScrollDown(MOUSE_SCROLL_LINES),
         _ => Action::None,
     }
 }
@@ -126,7 +136,10 @@ pub fn handle_picker_key(key: KeyEvent) -> PickerAction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+    use crossterm::event::{
+        KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEvent,
+        MouseEventKind,
+    };
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent {
@@ -143,6 +156,15 @@ mod tests {
             modifiers,
             kind: KeyEventKind::Press,
             state: KeyEventState::NONE,
+        }
+    }
+
+    fn mouse(kind: MouseEventKind) -> MouseEvent {
+        MouseEvent {
+            kind,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
         }
     }
 
@@ -219,6 +241,30 @@ mod tests {
         assert!(matches!(
             handle_key_event(key(KeyCode::PageDown)),
             Action::ScrollDown(_)
+        ));
+    }
+
+    #[test]
+    fn mouse_scroll_up_produces_scroll_up() {
+        assert!(matches!(
+            handle_mouse_event(mouse(MouseEventKind::ScrollUp)),
+            Action::ScrollUp(3)
+        ));
+    }
+
+    #[test]
+    fn mouse_scroll_down_produces_scroll_down() {
+        assert!(matches!(
+            handle_mouse_event(mouse(MouseEventKind::ScrollDown)),
+            Action::ScrollDown(3)
+        ));
+    }
+
+    #[test]
+    fn non_scroll_mouse_event_produces_none() {
+        assert!(matches!(
+            handle_mouse_event(mouse(MouseEventKind::Down(MouseButton::Left))),
+            Action::None
         ));
     }
 

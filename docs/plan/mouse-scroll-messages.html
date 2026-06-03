@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oxide — Mouse Scroll for Message History</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-dim: #1f6feb33;
+      --green: #3fb950;
+      --green-dim: #23863533;
+      --yellow: #d29922;
+      --yellow-dim: #d2992233;
+      --red: #f85149;
+      --red-dim: #f8514933;
+      --orange: #db6d28;
+      --purple: #bc8cff;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    header .subtitle {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-top: 0.25rem;
+    }
+
+    section {
+      margin-bottom: 2rem;
+    }
+
+    h2 {
+      font-size: 1.15rem;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.3rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h3 {
+      font-size: 1rem;
+      color: var(--purple);
+      margin: 1rem 0 0.4rem;
+    }
+
+    p, li { color: var(--text); margin-bottom: 0.4rem; }
+    ul, ol { padding-left: 1.4rem; margin: 0.3rem 0 0.8rem; }
+
+    code {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.15rem 0.4rem;
+      font-size: 0.9em;
+      color: var(--orange);
+    }
+
+    pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      overflow-x: auto;
+      margin: 0.5rem 0 1rem;
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+
+    pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      color: var(--text);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .badge-bug { background: var(--red-dim); color: var(--red); }
+    .badge-feat { background: var(--green-dim); color: var(--green); }
+    .badge-file { background: var(--accent-dim); color: var(--accent); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.5rem 0 1rem;
+      font-size: 0.9rem;
+    }
+
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+    }
+
+    th {
+      background: var(--surface);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .diagram {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin: 0.75rem 0 1rem;
+      font-size: 0.85rem;
+      line-height: 1.4;
+      white-space: pre;
+      overflow-x: auto;
+    }
+
+    .callout {
+      border-left: 3px solid var(--yellow);
+      background: var(--yellow-dim);
+      padding: 0.75rem 1rem;
+      margin: 0.75rem 0;
+      border-radius: 0 6px 6px 0;
+    }
+
+    .callout p { color: var(--text); margin: 0; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Mouse Scroll for Message History</h1>
+  <p class="subtitle">Enable terminal-native mouse wheel scrolling through conversation history, matching the UX of Claude Code and Codex.</p>
+</header>
+
+<!-- ───────────────────────────── Problem ───────────────────────────── -->
+<section>
+  <h2>Problem</h2>
+  <p>When an AI agent returns a long response, the user cannot scroll back up to review earlier parts of the conversation. The only scroll mechanism today is <code>PageUp</code>/<code>PageDown</code> (5 lines at a time), which is not discoverable and doesn't match the expected UX of modern terminal tools like Claude Code or Codex where the mouse wheel just works.</p>
+
+  <p>There are two underlying issues:</p>
+  <ol>
+    <li><span class="badge badge-bug">bug</span> <strong>Scroll direction inverted in renderer</strong> &mdash; <code>scroll_offset = 0</code> is treated as "at the bottom" in <code>app.rs</code> (resets to 0 on new messages, <code>was_at_bottom = offset == 0</code>), but the renderer passes it directly to <code>Paragraph::scroll((offset, 0))</code>, where 0 means "show from the top". The semantics disagree.</li>
+    <li><span class="badge badge-feat">feat</span> <strong>No mouse wheel handling</strong> &mdash; <code>event.rs</code> only forwards <code>Event::Key</code> events to the app loop. Mouse wheel events (<code>Event::Mouse</code> with <code>MouseEventKind::ScrollUp/ScrollDown</code>) are silently discarded despite <code>EnableMouseCapture</code> being active.</li>
+  </ol>
+</section>
+
+<!-- ───────────────────────────── Current Flow ───────────────────────────── -->
+<section>
+  <h2>Current Event &amp; Scroll Flow</h2>
+  <div class="diagram">terminal event
+    &darr;
+event.rs &mdash; polls crossterm::event::read()
+    &darr;  only Event::Key with KeyEventKind::Press forwarded
+    &darr;  Event::Mouse &mdash; DISCARDED
+    &darr;
+AppEvent::Key(key)
+    &darr;
+handler.rs &mdash; handle_key_event()
+    &darr;  PageUp  &rarr; Action::ScrollUp(5)
+    &darr;  PageDown &rarr; Action::ScrollDown(5)
+    &darr;
+app.rs &mdash; scroll_up() / scroll_down()
+    &darr;  modifies scroll_offset (saturating add/sub)
+    &darr;
+ui/messages.rs &mdash; render_messages()
+    &darr;  scroll = scroll_offset.min(max_scroll)  &larr; BUG: should be max_scroll - offset
+    &darr;
+Paragraph::scroll((scroll, 0))</div>
+</section>
+
+<!-- ───────────────────────────── Files to Change ───────────────────────────── -->
+<section>
+  <h2>Files to Change</h2>
+  <table>
+    <tr><th>File</th><th>Change</th><th>Type</th></tr>
+    <tr>
+      <td><code>src/event.rs</code></td>
+      <td>Add <code>AppEvent::Mouse</code> variant; forward <code>Event::Mouse</code> events</td>
+      <td><span class="badge badge-feat">feat</span></td>
+    </tr>
+    <tr>
+      <td><code>src/handler.rs</code></td>
+      <td>Add <code>handle_mouse_event()</code> that maps <code>ScrollUp</code>/<code>ScrollDown</code> to existing <code>Action::ScrollUp/ScrollDown</code></td>
+      <td><span class="badge badge-feat">feat</span></td>
+    </tr>
+    <tr>
+      <td><code>src/main.rs</code></td>
+      <td>Match on <code>AppEvent::Mouse</code> in the event loop, dispatch to handler</td>
+      <td><span class="badge badge-feat">feat</span></td>
+    </tr>
+    <tr>
+      <td><code>src/ui/messages.rs</code></td>
+      <td>Fix scroll calculation: <code>scroll = max_scroll - clamped_offset</code></td>
+      <td><span class="badge badge-bug">bug</span></td>
+    </tr>
+    <tr>
+      <td><code>src/app.rs</code></td>
+      <td>No changes needed &mdash; <code>scroll_up()</code>/<code>scroll_down()</code> and reset-to-0 semantics are already correct for "0 = bottom"</td>
+      <td>&mdash;</td>
+    </tr>
+  </table>
+</section>
+
+<!-- ───────────────────────────── Implementation Steps ───────────────────────────── -->
+<section>
+  <h2>Implementation Steps</h2>
+
+  <h3>Step 1: Fix scroll direction <span class="badge badge-bug">bug</span></h3>
+  <p>In <code>src/ui/messages.rs</code>, the render function must invert the offset so that <code>scroll_offset = 0</code> maps to <code>Paragraph::scroll((max_scroll, 0))</code> (bottom of content).</p>
+  <pre><code>// Before (broken):
+let scroll = app.scroll_offset().min(max_scroll);
+
+// After (fixed):
+let clamped = app.scroll_offset().min(max_scroll);
+let scroll = max_scroll.saturating_sub(clamped);</code></pre>
+
+  <div class="callout">
+    <p>This fix is independent of mouse support and should be committed separately. It also fixes the existing <code>PageUp</code>/<code>PageDown</code> behavior which is currently reversed.</p>
+  </div>
+
+  <h3>Step 2: Forward mouse events from the event reader</h3>
+  <p>In <code>src/event.rs</code>, add a <code>Mouse</code> variant to <code>AppEvent</code> and forward <code>Event::Mouse</code> from the crossterm poll loop:</p>
+  <pre><code>pub enum AppEvent {
+    Key(crossterm::event::KeyEvent),
+    Mouse(crossterm::event::MouseEvent),
+    Tick,
+}
+
+// In the poll loop, handle both Key and Mouse:
+match event::read() {
+    Ok(Event::Key(key)) if key.kind == KeyEventKind::Press => {
+        if tx.send(AppEvent::Key(key)).is_err() { return; }
+    }
+    Ok(Event::Mouse(mouse)) => {
+        if tx.send(AppEvent::Mouse(mouse)).is_err() { return; }
+    }
+    _ => {}
+}</code></pre>
+
+  <h3>Step 3: Map mouse scroll to existing scroll actions</h3>
+  <p>In <code>src/handler.rs</code>, add a function that converts mouse scroll events to <code>Action</code>:</p>
+  <pre><code>use crossterm::event::{MouseEvent, MouseEventKind};
+
+const MOUSE_SCROLL_LINES: usize = 3;
+
+pub fn handle_mouse_event(mouse: MouseEvent) -> Action {
+    match mouse.kind {
+        MouseEventKind::ScrollUp => Action::ScrollUp(MOUSE_SCROLL_LINES),
+        MouseEventKind::ScrollDown => Action::ScrollDown(MOUSE_SCROLL_LINES),
+        _ => Action::None,
+    }
+}</code></pre>
+
+  <div class="callout">
+    <p>3 lines per scroll tick is a common default. This can be tuned later. The key point is reusing the existing <code>Action::ScrollUp</code>/<code>ScrollDown</code> variants &mdash; no new action types needed.</p>
+  </div>
+
+  <h3>Step 4: Wire mouse events into the main loop</h3>
+  <p>In <code>src/main.rs</code>, add a match arm for <code>AppEvent::Mouse</code> alongside the existing <code>AppEvent::Key</code> handler:</p>
+  <pre><code>Some(AppEvent::Mouse(mouse)) => {
+    if matches!(app.mode(), AppMode::Chat) {
+        let action = handle_mouse_event(mouse);
+        apply_action(&mut app, &mut input, action);
+    }
+}</code></pre>
+  <p>Mouse scroll is only processed in Chat mode &mdash; in Picker mode, the existing Up/Down keys handle navigation.</p>
+
+  <h3>Step 5: Update tests</h3>
+  <ul>
+    <li><strong><code>src/ui/messages.rs</code></strong> &mdash; no render tests to update (the scroll direction fix changes behavior but existing unit tests only cover <code>wrap_line</code>)</li>
+    <li><strong><code>src/handler.rs</code></strong> &mdash; add tests for <code>handle_mouse_event()</code>: <code>ScrollUp</code> &rarr; <code>Action::ScrollUp(3)</code>, <code>ScrollDown</code> &rarr; <code>Action::ScrollDown(3)</code>, other mouse events &rarr; <code>Action::None</code></li>
+    <li><strong><code>src/event.rs</code></strong> &mdash; no unit tests (async tokio spawn, tested via integration)</li>
+  </ul>
+
+  <h3>Step 6: Manual verification with tmux</h3>
+  <pre><code># Start in a tmux session
+tmux new-session -d -s oxide-test -x 80 -y 24 "cargo run"
+sleep 3
+
+# Send a long message to get a long response
+tmux send-keys -t oxide-test "Explain the Rust ownership model in detail"
+tmux send-keys -t oxide-test Enter
+sleep 10
+
+# Test mouse wheel scroll up (show earlier content)
+tmux send-keys -t oxide-test -T WheelUp
+tmux send-keys -t oxide-test -T WheelUp
+tmux send-keys -t oxide-test -T WheelUp
+sleep 1
+tmux capture-pane -t oxide-test -p  # Should show earlier messages
+
+# Test mouse wheel scroll down (back to latest)
+tmux send-keys -t oxide-test -T WheelDown
+tmux send-keys -t oxide-test -T WheelDown
+tmux send-keys -t oxide-test -T WheelDown
+sleep 1
+tmux capture-pane -t oxide-test -p  # Should show latest messages
+
+tmux kill-session -t oxide-test</code></pre>
+</section>
+
+<!-- ───────────────────────────── Target Flow ───────────────────────────── -->
+<section>
+  <h2>Target Event Flow</h2>
+  <div class="diagram">terminal event
+    &darr;
+event.rs &mdash; polls crossterm::event::read()
+    &darr;  Event::Key   &rarr; AppEvent::Key
+    &darr;  Event::Mouse &rarr; AppEvent::Mouse    &larr; NEW
+    &darr;
+main.rs event loop
+    &darr;  AppEvent::Key   &rarr; handle_key_event()
+    &darr;  AppEvent::Mouse &rarr; handle_mouse_event()  &larr; NEW
+    &darr;
+handler.rs
+    &darr;  ScrollUp/ScrollDown &rarr; Action::ScrollUp/ScrollDown  (shared path)
+    &darr;
+app.rs &mdash; scroll_up() / scroll_down()
+    &darr;
+ui/messages.rs
+    &darr;  scroll = max_scroll - clamped_offset   &larr; FIXED
+    &darr;
+Paragraph::scroll((scroll, 0))</div>
+</section>
+
+<!-- ───────────────────────────── Commit Plan ───────────────────────────── -->
+<section>
+  <h2>Commit Plan</h2>
+  <table>
+    <tr><th>#</th><th>Message</th><th>Files</th></tr>
+    <tr>
+      <td>1</td>
+      <td><code>fix(ui): correct scroll direction so offset 0 shows bottom</code></td>
+      <td><code>src/ui/messages.rs</code></td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><code>feat(ui): add mouse wheel scrolling for message history</code></td>
+      <td><code>src/event.rs</code>, <code>src/handler.rs</code>, <code>src/main.rs</code></td>
+    </tr>
+  </table>
+</section>
+
+</body>
+</html>

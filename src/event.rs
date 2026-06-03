@@ -1,10 +1,11 @@
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyEventKind};
+use crossterm::event::{self, Event, KeyEventKind, MouseEvent};
 use tokio::sync::mpsc;
 
 pub enum AppEvent {
     Key(crossterm::event::KeyEvent),
+    Mouse(MouseEvent),
     Tick,
 }
 
@@ -19,11 +20,16 @@ impl EventReader {
         tokio::spawn(async move {
             loop {
                 if event::poll(tick_rate).is_ok_and(|ready| ready) {
-                    if let Ok(Event::Key(key)) = event::read()
-                        && key.kind == KeyEventKind::Press
-                        && tx.send(AppEvent::Key(key)).is_err()
-                    {
-                        return;
+                    match event::read() {
+                        Ok(Event::Key(key)) if key.kind == KeyEventKind::Press => {
+                            if tx.send(AppEvent::Key(key)).is_err() {
+                                return;
+                            }
+                        }
+                        Ok(Event::Mouse(mouse)) if tx.send(AppEvent::Mouse(mouse)).is_err() => {
+                            return;
+                        }
+                        _ => {}
                     }
                 } else if tx.send(AppEvent::Tick).is_err() {
                     return;

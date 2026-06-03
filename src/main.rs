@@ -32,7 +32,8 @@ use crate::dust::client::{DustClient, DustEvent, resolve_agent_id};
 use crate::dust::types::AgentInfo;
 use crate::event::{AppEvent, EventReader};
 use crate::handler::{
-    ActionOutcome, PickerAction, SlashCommand, apply_action, handle_key_event, handle_picker_key,
+    ActionOutcome, PickerAction, SlashCommand, apply_action, handle_key_event, handle_mouse_event,
+    handle_picker_key,
 };
 use crate::input_buffer::InputBuffer;
 use crate::ui::{
@@ -176,6 +177,12 @@ async fn run_tui() -> io::Result<()> {
                                     });
                                 }
                             }
+                        }
+                    }
+                    Some(AppEvent::Mouse(mouse)) => {
+                        if matches!(app.mode(), AppMode::Chat) {
+                            let action = handle_mouse_event(mouse);
+                            let _ = apply_action(&mut app, &mut input, action);
                         }
                     }
                     Some(AppEvent::Tick) => {}

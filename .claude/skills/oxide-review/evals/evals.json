@@ -1,0 +1,28 @@
+{
+  "skill_name": "oxide-review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Review the current mouse scroll implementation against docs/plan/mouse-scroll-messages.html and write the feedback to feedback.md.",
+      "expected_output": "The skill should read the plan, inspect the current diff, run a relevant verification command, and write feedback.md with findings first in conventional comment style.",
+      "assertions": [
+        "Reads the plan document before judging the code",
+        "Inspects git status or git diff for the active changes",
+        "Runs a relevant verification command through nix develop",
+        "Writes the review to feedback.md",
+        "Uses conventional comment labels such as issue, suggestion, or praise"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Do a senior review of the current branch against the ADR and leave only actionable feedback.",
+      "expected_output": "The skill should scope the review to the requested ADR and changed files, then prioritize bugs, regressions, and missing tests over general summary.",
+      "assertions": [
+        "Reviews against the requested source of truth",
+        "Focuses on changed files instead of the whole repository",
+        "Findings are ordered by severity",
+        "Summaries remain brief and secondary"
+      ]
+    }
+  ]
+}
