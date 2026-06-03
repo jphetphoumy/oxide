@@ -35,7 +35,11 @@ pub fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
     let total_lines = lines.len();
     let visible_height = area.height as usize;
     let max_scroll = total_lines.saturating_sub(visible_height);
-    let scroll = app.scroll_offset().min(max_scroll);
+    // scroll_offset 0 = "at the bottom" (latest messages visible).
+    // Higher offset = further up in history.  Convert to ratatui's
+    // top-origin scroll by subtracting from max_scroll.
+    let clamped = app.scroll_offset().min(max_scroll);
+    let scroll = max_scroll.saturating_sub(clamped);
 
     let messages_widget = Paragraph::new(lines)
         .block(Block::default().borders(Borders::NONE))
@@ -83,6 +87,32 @@ fn wrap_line(text: &str, max_width: usize) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    fn render_messages_text(app: &App, width: u16, height: u16) -> Vec<String> {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_messages(frame, app, frame.area());
+            })
+            .unwrap();
+
+        let buf = terminal.backend().buffer().clone();
+        (0..buf.area.height)
+            .map(|y| {
+                (0..buf.area.width)
+                    .map(|x| {
+                        buf.cell((x, y))
+                            .map_or(' ', |c| c.symbol().chars().next().unwrap_or(' '))
+                    })
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect()
+    }
 
     #[test]
     fn short_line_no_wrap() {
@@ -134,5 +164,26 @@ mod tests {
         // 5 multi-byte chars, wrap at 3
         let result = wrap_line("ñéàüö", 3);
         assert_eq!(result, vec!["ñéà", "üö"]);
+    }
+
+    #[test]
+    fn zero_scroll_offset_renders_latest_messages() {
+        let mut app = App::new("agent", "/workspace", None);
+        app.push_system_message("one\ntwo");
+        app.push_system_message("three\nfour");
+
+        let rows = render_messages_text(&app, 20, 4);
+        assert_eq!(rows, vec!["", "  system", "   three", "   four"]);
+    }
+
+    #[test]
+    fn scrolling_up_reveals_older_messages() {
+        let mut app = App::new("agent", "/workspace", None);
+        app.push_system_message("one\ntwo");
+        app.push_system_message("three\nfour");
+        app.scroll_up(1);
+
+        let rows = render_messages_text(&app, 20, 4);
+        assert_eq!(rows, vec!["   two", "", "  system", "   three"]);
     }
 }
