@@ -7,6 +7,7 @@ mod event;
 mod handler;
 mod input_buffer;
 mod observability;
+mod slash;
 mod ui;
 
 use std::io;
@@ -34,7 +35,9 @@ use crate::handler::{
     ActionOutcome, PickerAction, SlashCommand, apply_action, handle_key_event, handle_picker_key,
 };
 use crate::input_buffer::InputBuffer;
-use crate::ui::{input_height, render_input, render_layout, render_messages, render_picker};
+use crate::ui::{
+    input_height, render_command_menu, render_input, render_layout, render_messages, render_picker,
+};
 
 fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
     enable_raw_mode()?;
@@ -108,6 +111,7 @@ async fn run_tui() -> io::Result<()> {
             let layout = render_layout(frame, &app, input_h);
             render_messages(frame, &app, layout.messages);
             render_input(frame, &input, layout.input);
+            render_command_menu(frame, input.content(), layout.input);
 
             let filtered = app.picker_filtered_agents();
             let selected = app.picker_selected();

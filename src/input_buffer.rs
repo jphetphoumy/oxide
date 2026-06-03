@@ -86,6 +86,12 @@ impl InputBuffer {
         self.cursor = self.content.len();
     }
 
+    /// Replace the buffer content and move cursor to end.
+    pub fn set_content(&mut self, content: &str) {
+        self.content = content.to_string();
+        self.cursor = self.content.len();
+    }
+
     /// Take the content, clearing the buffer and resetting the cursor.
     pub fn take(&mut self) -> String {
         self.cursor = 0;
@@ -242,6 +248,15 @@ mod tests {
     fn lines_empty_buffer() {
         let buf = InputBuffer::new();
         assert_eq!(buf.lines(), vec![""]);
+    }
+
+    #[test]
+    fn set_content_replaces_buffer() {
+        let mut buf = InputBuffer::new();
+        buf.insert_char('x');
+        buf.set_content("/switch");
+        assert_eq!(buf.content(), "/switch");
+        assert_eq!(buf.cursor(), 7);
     }
 
     #[test]

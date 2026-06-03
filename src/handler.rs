@@ -2,11 +2,13 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::app::App;
 use crate::input_buffer::InputBuffer;
+use crate::slash;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Action {
     Quit,
     Submit,
+    TabComplete,
     InsertChar(char),
     InsertNewline,
     DeleteBack,
@@ -28,6 +30,7 @@ pub fn handle_key_event(key: KeyEvent) -> Action {
         (KeyCode::Char('c' | 'd'), KeyModifiers::CONTROL) => Action::Quit,
         (KeyCode::Enter, m) if m.contains(KeyModifiers::ALT) => Action::InsertNewline,
         (KeyCode::Enter, _) => Action::Submit,
+        (KeyCode::Tab, _) => Action::TabComplete,
         (KeyCode::Backspace, _) => Action::DeleteBack,
         (KeyCode::Delete, _) => Action::DeleteForward,
         (KeyCode::Left, _) => Action::MoveLeft,
@@ -81,6 +84,14 @@ pub fn apply_action(app: &mut App, input: &mut InputBuffer, action: Action) -> A
                 outcome.slash_command = Some(command);
             } else if app.send_message(&content) {
                 outcome.submit = Some(content);
+            }
+        }
+        Action::TabComplete => {
+            let content = input.content();
+            if let Some(prefix) = content.strip_prefix('/')
+                && let Some(completed) = slash::complete(prefix)
+            {
+                input.set_content(completed);
             }
         }
         Action::InsertChar(c) => input.insert_char(c),
@@ -346,6 +357,48 @@ mod tests {
             handle_picker_key(key(KeyCode::Backspace)),
             PickerAction::Backspace
         ));
+    }
+
+    #[test]
+    fn tab_produces_tab_complete() {
+        let action = handle_key_event(key(KeyCode::Tab));
+        assert!(matches!(action, Action::TabComplete));
+    }
+
+    #[test]
+    fn tab_complete_on_slash_prefix_completes_command() {
+        let mut app = App::new("a", "/workspace", None);
+        let mut input = InputBuffer::new();
+        for c in "/sw".chars() {
+            input.insert_char(c);
+        }
+
+        apply_action(&mut app, &mut input, Action::TabComplete);
+        assert_eq!(input.content(), "/switch");
+    }
+
+    #[test]
+    fn tab_complete_no_match_does_nothing() {
+        let mut app = App::new("a", "/workspace", None);
+        let mut input = InputBuffer::new();
+        for c in "/xyz".chars() {
+            input.insert_char(c);
+        }
+
+        apply_action(&mut app, &mut input, Action::TabComplete);
+        assert_eq!(input.content(), "/xyz");
+    }
+
+    #[test]
+    fn tab_complete_without_slash_does_nothing() {
+        let mut app = App::new("a", "/workspace", None);
+        let mut input = InputBuffer::new();
+        for c in "hello".chars() {
+            input.insert_char(c);
+        }
+
+        apply_action(&mut app, &mut input, Action::TabComplete);
+        assert_eq!(input.content(), "hello");
     }
 
     #[test]
