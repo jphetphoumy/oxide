@@ -32,8 +32,14 @@ pub fn render_input(frame: &mut Frame, buf: &InputBuffer, area: Rect) {
     let inner_width = inner.width as usize;
     if inner_width > 0 {
         let (row, col) = visual_cursor_position(buf, inner_width);
-        let cursor_x = inner.x + col as u16;
-        let cursor_y = inner.y + row as u16;
+        let Ok(col_u16) = u16::try_from(col) else {
+            return;
+        };
+        let Ok(row_u16) = u16::try_from(row) else {
+            return;
+        };
+        let cursor_x = inner.x + col_u16;
+        let cursor_y = inner.y + row_u16;
         if cursor_y < inner.y + inner.height {
             frame.set_cursor_position((cursor_x, cursor_y));
         }
