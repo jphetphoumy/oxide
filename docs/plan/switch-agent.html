@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Oxide — /switch Agent Feature Plan</title>
+  <title>Oxide — Slash Commands &amp; Agent Switching</title>
   <style>
     :root {
       --bg: #0d1117;
@@ -18,6 +18,7 @@
       --yellow: #d29922;
       --yellow-dim: #d2992233;
       --red: #f85149;
+      --red-dim: #f8514933;
       --orange: #db6d28;
       --purple: #bc8cff;
     }
@@ -65,12 +66,30 @@
       color: var(--accent);
     }
 
+    .status-badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 3px;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-left: 0.5rem;
+    }
+
+    .done { background: var(--green-dim); color: var(--green); }
+    .todo { background: var(--yellow-dim); color: var(--yellow); }
+
     h2 {
       font-size: 1.1rem;
       color: var(--green);
       margin: 2rem 0 1rem;
       border-left: 3px solid var(--green);
       padding-left: 0.75rem;
+    }
+
+    h2.phase-done {
+      color: var(--text-muted);
+      border-left-color: var(--text-muted);
     }
 
     h3 {
@@ -126,17 +145,10 @@
       margin: 1rem 0;
     }
 
-    .card-accent {
-      border-left: 3px solid var(--accent);
-    }
-
-    .card-green {
-      border-left: 3px solid var(--green);
-    }
-
-    .card-yellow {
-      border-left: 3px solid var(--yellow);
-    }
+    .card-accent { border-left: 3px solid var(--accent); }
+    .card-green { border-left: 3px solid var(--green); }
+    .card-yellow { border-left: 3px solid var(--yellow); }
+    .card-muted { border-left: 3px solid var(--text-muted); opacity: 0.6; }
 
     .endpoint {
       display: flex;
@@ -258,6 +270,24 @@
       margin: 1rem 0;
     }
 
+    .tui-mockup {
+      background: #000;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      font-size: 0.8rem;
+      line-height: 1.4;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+
+    .tui-mockup .prompt { color: var(--accent); }
+    .tui-mockup .hint { color: var(--text-muted); }
+    .tui-mockup .highlight { background: #333; display: inline-block; width: 100%; padding: 0 0.25rem; }
+    .tui-mockup .cmd { color: var(--green); font-weight: bold; }
+    .tui-mockup .desc { color: var(--text-muted); }
+    .tui-mockup .sep { color: #333; }
+
     @media (max-width: 640px) {
       .summary-grid { grid-template-columns: 1fr; }
       body { padding: 1rem; }
@@ -267,12 +297,13 @@
 <body>
 
 <header>
-  <h1>/switch — Agent Switching Feature</h1>
-  <p class="subtitle">Implementation plan for in-session agent switching via slash command</p>
+  <h1>Slash Commands &amp; Agent Switching</h1>
+  <p class="subtitle">Inline command menu with <code>/</code> trigger, Tab completion, and <code>/switch</code> agent picker overlay</p>
   <div class="meta">
     <span>oxide v0.4.5</span>
     <span>2026-06-03</span>
     <span>ratatui + Dust API</span>
+    <span>ADR-0008</span>
   </div>
 </header>
 
@@ -281,31 +312,87 @@
 <h2>Overview</h2>
 
 <p>
-  Currently the Oxide TUI locks to a single agent for the entire session
-  (resolved at startup from <code>OXIDE_AGENT_ID</code> / config / default <code>"dust"</code>).
-  This plan adds a <code>/switch</code> slash command that lets users list
-  available agents and switch mid-conversation without restarting.
+  This plan covers two interconnected features:
 </p>
+<ol>
+  <li><strong>Slash command framework</strong> &mdash; typing <code>/</code> in the input shows an inline
+    autocomplete menu listing available commands. Typing further filters the list. Tab completes the
+    top match. Enter submits the completed command.</li>
+  <li><strong><code>/switch</code> command</strong> &mdash; submitting <code>/switch</code> opens a
+    centered overlay to pick a different Dust agent, preserving the current conversation.</li>
+</ol>
 
 <div class="summary-grid">
   <div class="card card-accent">
     <h3>User experience</h3>
     <ul>
-      <li>Type <code>/switch</code> &rarr; see a filterable list of agents</li>
-      <li>Arrow-key or type to filter, Enter to select</li>
-      <li>Status bar updates to reflect new agent</li>
-      <li>Next message is sent to the new agent (same conversation)</li>
+      <li>Type <code>/</code> &rarr; inline menu appears below input with available commands</li>
+      <li>Continue typing to filter &mdash; <code>/sw</code> narrows to <code>/switch</code></li>
+      <li>Tab completes the top match into the input</li>
+      <li>Enter submits the completed command</li>
+      <li><code>/switch</code> &rarr; centered overlay with agent list, filter, arrow keys, Enter to select</li>
+      <li>Esc dismisses either the menu or the picker</li>
     </ul>
   </div>
   <div class="card card-accent">
     <h3>Non-goals</h3>
     <ul>
       <li>Creating / editing agent configurations</li>
-      <li>Starting a new conversation on switch</li>
+      <li>Starting a new conversation on agent switch</li>
       <li>Persisting agent choice to config file</li>
-      <li>Multi-agent mentions in a single message</li>
+      <li>Slash commands with arguments (e.g. <code>/switch &lt;name&gt;</code>)</li>
     </ul>
   </div>
+</div>
+
+<!-- ───────────────── UX MOCKUPS ───────────────── -->
+
+<h2>UX Mockups</h2>
+
+<h3>1. Slash command menu (inline, below input)</h3>
+
+<div class="tui-mockup">
+<pre>
+────────────────────────────────────────────────────
+<span class="prompt">❯</span> /
+────────────────────────────────────────────────────
+<span class="highlight"><span class="cmd">/switch</span>  <span class="desc">Switch to a different agent</span></span>
+</pre>
+</div>
+
+<div class="tui-mockup">
+<pre>
+────────────────────────────────────────────────────
+<span class="prompt">❯</span> /sw
+────────────────────────────────────────────────────
+<span class="highlight"><span class="cmd">/switch</span>  <span class="desc">Switch to a different agent</span></span>
+</pre>
+</div>
+
+<p>When no commands match the filter, the menu disappears:</p>
+
+<div class="tui-mockup">
+<pre>
+────────────────────────────────────────────────────
+<span class="prompt">❯</span> /xyz
+────────────────────────────────────────────────────
+</pre>
+</div>
+
+<h3>2. Agent picker overlay (centered, after submitting /switch)</h3>
+
+<div class="tui-mockup">
+<pre>
+  ┌─ Switch Agent ──────────────────────────┐
+  │ <span class="prompt">/</span> <span class="hint">Type to filter...</span>                     │
+  │ ──────────────────────────────────────── │
+  │ <span class="highlight"> <span class="cmd">dust</span>      <span class="desc">General-purpose assistant</span>   </span> │
+  │   <span class="cmd">helper</span>    <span class="desc">Code helper</span>                  │
+  │   <span class="cmd">reviewer</span>  <span class="desc">PR review agent</span>              │
+  │                                          │
+  │ <span class="hint">↑↓ navigate  Enter select  Esc cancel</span>  │
+  └──────────────────────────────────────────┘
+</pre>
 </div>
 
 <!-- ───────────────── DUST API ───────────────── -->
@@ -313,25 +400,16 @@
 <h2>Dust API Surface</h2>
 
 <div class="card">
-  <p style="color: var(--text-muted); margin-bottom: 0.75rem;">Two endpoints are relevant:</p>
+  <p style="color: var(--text-muted); margin-bottom: 0.75rem;">Two endpoints are relevant (used by <code>/switch</code>):</p>
 
   <div class="endpoint">
     <span class="method get">GET</span>
-    <span class="endpoint-path">/api/v1/w/{wId}/assistant/agent_configurations</span>
+    <span class="endpoint-path">/api/v1/w/{wId}/assistant/agent_configurations?view=list</span>
   </div>
-  <p>Lists all accessible agents. We use <code>view=list</code> (authenticated default)
-  to get the user's active agents.</p>
-  <p style="margin-top:0.5rem">Response shape:</p>
+  <p>Lists all accessible agents for the authenticated user.</p>
   <pre><code>{
   "agentConfigurations": [
-    {
-      "sId": "abc123",
-      "name": "dust",
-      "description": "General-purpose assistant",
-      "pictureUrl": "https://...",
-      "status": "active",
-      "scope": "workspace"
-    },
+    { "sId": "abc123", "name": "dust", "description": "General-purpose assistant", "scope": "workspace" },
     ...
   ]
 }</code></pre>
@@ -340,249 +418,237 @@
     <span class="method get">GET</span>
     <span class="endpoint-path">/api/v1/w/{wId}/assistant/agent_configurations/search?q={query}</span>
   </div>
-  <p>Searches agents by name. Useful if the workspace has many agents &mdash;
-     we can do client-side filtering on the cached list instead, and fall back
-     to this endpoint only if needed.</p>
+  <p>Server-side name search. Available as fallback; we prefer client-side filtering.</p>
 </div>
-
-<p>Key fields we need from <code>AgentConfiguration</code>:</p>
-
-<table>
-  <tr><th>Field</th><th>Type</th><th>Usage</th></tr>
-  <tr><td><code>sId</code></td><td>string</td><td>Agent identifier &mdash; passed as <code>configurationId</code> in mentions and stored in <code>DustClient.agent_id</code></td></tr>
-  <tr><td><code>name</code></td><td>string</td><td>Display name shown in the picker and status bar</td></tr>
-  <tr><td><code>description</code></td><td>string</td><td>Shown as secondary text in the picker</td></tr>
-  <tr><td><code>pictureUrl</code></td><td>string</td><td>Not used (TUI has no images)</td></tr>
-  <tr><td><code>scope</code></td><td>string</td><td>Group agents: <code>workspace</code> vs <code>published</code> vs <code>global</code></td></tr>
-</table>
 
 <!-- ───────────────── ARCHITECTURE ───────────────── -->
 
 <h2>Architecture</h2>
 
+<h3>Slash command registry</h3>
+
+<p>Commands are defined in a static registry. Each entry has a name, description, and the
+  action to perform when submitted. This makes it trivial to add new commands later.</p>
+
+<pre><code>struct SlashCommandDef {
+    name: &'static str,        // e.g. "switch"
+    description: &'static str, // e.g. "Switch to a different agent"
+}
+
+const COMMANDS: &[SlashCommandDef] = &[
+    SlashCommandDef { name: "switch", description: "Switch to a different agent" },
+    // future: { name: "clear", description: "Clear conversation" },
+    // future: { name: "new", description: "Start new conversation" },
+];</code></pre>
+
 <h3>App mode state machine</h3>
 
-<p>The app gains a <strong>mode</strong> enum. The TUI main loop dispatches events
-  differently based on the current mode:</p>
-
 <pre><code>enum AppMode {
-    Chat,                     // current behavior
-    AgentPicker(PickerState), // /switch overlay
+    Chat,                     // normal input — if text starts with "/" show command menu
+    Picker(PickerState),      // /switch overlay (already implemented)
 }
 
-struct PickerState {
-    agents: Vec&lt;AgentInfo&gt;,   // fetched from API
-    filter: String,            // live search text
-    selected: usize,           // cursor index in filtered list
-    loading: bool,             // true while API call in-flight
-}
+// The command menu is NOT a mode — it's a UI hint rendered when
+// the input buffer starts with "/" while in Chat mode.</code></pre>
 
-struct AgentInfo {
-    s_id: String,
-    name: String,
-    description: String,
-    scope: String,
-}</code></pre>
+<h3>Input-driven command menu</h3>
 
-<h3>User flow</h3>
+<p>The command menu is <strong>not</strong> a separate app mode. It is rendered as an inline
+  popup <strong>whenever the input buffer starts with <code>/</code></strong> during
+  <code>Chat</code> mode. This keeps the state machine simple:</p>
+
+<ul>
+  <li>Rendering checks <code>input.content().starts_with('/')</code></li>
+  <li>The filter text is everything after <code>/</code></li>
+  <li>Tab inserts the top match's full name (replacing current input)</li>
+  <li>Enter on a completed command triggers the command action</li>
+  <li>Esc or Backspace past <code>/</code> dismisses the menu naturally</li>
+</ul>
+
+<h3>User flow — command menu</h3>
 
 <div class="flow-diagram">
   <div class="flow-step">
     <span class="step-number">1</span>
-    <span class="flow-label user">User types <code>/switch</code> + Enter</span>
+    <span class="flow-label user">User types <code>/</code></span>
   </div>
   <div class="flow-arrow">&darr;</div>
   <div class="flow-step">
     <span class="step-number">2</span>
-    <span class="flow-label system">Handler detects slash command, switches to <code>AgentPicker</code> mode</span>
+    <span class="flow-label ui">Inline menu appears below input with all commands</span>
   </div>
   <div class="flow-arrow">&darr;</div>
   <div class="flow-step">
     <span class="step-number">3</span>
-    <span class="flow-label api">Async task calls <code>GET /agent_configurations?view=list</code></span>
+    <span class="flow-label user">User types more chars to filter (e.g. <code>/sw</code>)</span>
   </div>
   <div class="flow-arrow">&darr;</div>
   <div class="flow-step">
     <span class="step-number">4</span>
-    <span class="flow-label ui">Overlay renders: search box + scrollable agent list</span>
+    <span class="flow-label user">Tab &rarr; top match auto-completed into input (<code>/switch</code>)</span>
   </div>
   <div class="flow-arrow">&darr;</div>
   <div class="flow-step">
     <span class="step-number">5</span>
-    <span class="flow-label user">User filters / arrows / selects with Enter (or Esc to cancel)</span>
+    <span class="flow-label user">Enter &rarr; command submitted</span>
   </div>
   <div class="flow-arrow">&darr;</div>
   <div class="flow-step">
     <span class="step-number">6</span>
-    <span class="flow-label system">App updates <code>agent_id</code> + <code>agent_name</code>, returns to Chat mode</span>
-  </div>
-  <div class="flow-arrow">&darr;</div>
-  <div class="flow-step">
-    <span class="step-number">7</span>
-    <span class="flow-label ui">Status bar reflects new agent; next message mentions new agent</span>
+    <span class="flow-label system">Handler dispatches to command action (e.g. open agent picker)</span>
   </div>
 </div>
 
-<!-- ───────────────── FILE CHANGES ───────────────── -->
+<h3>User flow — agent picker (unchanged)</h3>
 
-<h2>File Changes</h2>
+<div class="flow-diagram">
+  <div class="flow-step">
+    <span class="step-number">1</span>
+    <span class="flow-label system"><code>/switch</code> submitted &rarr; enter <code>Picker</code> mode + fetch agents</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">2</span>
+    <span class="flow-label ui">Centered overlay with search + scrollable agent list</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">3</span>
+    <span class="flow-label user">Filter / arrow / Enter to select (Esc to cancel)</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">4</span>
+    <span class="flow-label system">App updates <code>agent_id</code> + <code>agent_name</code>, returns to Chat</span>
+  </div>
+</div>
+
+<!-- ───────────────── PHASE 1 (DONE) ───────────────── -->
+
+<h2 class="phase-done">Phase 1 — <code>/switch</code> Agent Picker <span class="status-badge done">done</span></h2>
+
+<p style="color: var(--text-muted);">Implemented in commit <code>60517a9</code> on <code>feat/switch-agent</code>.</p>
+
+<div class="card card-muted">
+  <h3>What was built</h3>
+  <ul>
+    <li><code>AgentInfo</code>, <code>ListAgentsResponse</code> types in <code>dust/types.rs</code></li>
+    <li><code>DustClient::list_agents()</code>, <code>set_agent()</code> in <code>dust/client.rs</code></li>
+    <li><code>AppMode</code> enum, <code>PickerState</code>, picker methods in <code>app.rs</code></li>
+    <li><code>SlashCommand</code>, <code>PickerAction</code>, <code>handle_picker_key()</code> in <code>handler.rs</code></li>
+    <li>Centered picker overlay in <code>ui/picker.rs</code></li>
+    <li>Mode-aware main loop in <code>main.rs</code></li>
+    <li>142 tests passing, 0 clippy warnings</li>
+  </ul>
+</div>
+
+<!-- ───────────────── PHASE 2 (TODO) ───────────────── -->
+
+<h2>Phase 2 — Slash Command Framework <span class="status-badge todo">todo</span></h2>
+
+<h3>File changes</h3>
 
 <div class="file-tree">
 <pre>
 src/
-├── <span class="mod">app.rs</span>           ← add AppMode, agent switching methods
-├── <span class="mod">handler.rs</span>       ← slash command detection, picker key handling
-├── <span class="mod">main.rs</span>          ← new channel for agent list, mode-aware dispatch
-├── <span class="mod">dust/client.rs</span>   ← add list_agents() method, set_agent()
-├── <span class="mod">dust/types.rs</span>    ← add AgentConfiguration response types
-├── <span class="new">ui/picker.rs</span>     ← new: agent picker overlay widget
-├── <span class="mod">ui/mod.rs</span>        ← export picker module
-└── <span class="mod">ui/layout.rs</span>     ← render picker overlay when in AgentPicker mode
+├── <span class="new">slash.rs</span>          ← new: command registry, matching, completion
+├── <span class="mod">handler.rs</span>       ← add Tab action, integrate slash registry
+├── <span class="mod">app.rs</span>           ← no mode change needed (menu is render-only)
+├── <span class="mod">main.rs</span>          ← pass input content to renderer for menu
+├── <span class="new">ui/command_menu.rs</span> ← new: inline popup below input
+└── <span class="mod">ui/mod.rs</span>        ← export command_menu
 </pre>
 </div>
 
 <table>
   <tr><th>File</th><th>Change</th><th>Details</th></tr>
   <tr>
-    <td><code>dust/types.rs</code></td>
-    <td><span class="tag tag-mod">mod</span></td>
+    <td><code>slash.rs</code></td>
+    <td><span class="tag tag-new">new</span></td>
     <td>
-      Add <code>AgentConfigurationResponse</code> and <code>AgentInfo</code> structs for deserializing the list endpoint response.
-    </td>
-  </tr>
-  <tr>
-    <td><code>dust/client.rs</code></td>
-    <td><span class="tag tag-mod">mod</span></td>
-    <td>
-      Add <code>list_agents(&self) -> Result&lt;Vec&lt;AgentInfo&gt;&gt;</code> calling
-      <code>GET /api/v1/w/{wId}/assistant/agent_configurations?view=list</code>.
-      Add <code>set_agent(&mut self, id: &str, name: &str)</code> to update the client's active agent.
-    </td>
-  </tr>
-  <tr>
-    <td><code>app.rs</code></td>
-    <td><span class="tag tag-mod">mod</span></td>
-    <td>
-      Add <code>AppMode</code> enum with <code>Chat</code> and <code>AgentPicker(PickerState)</code>.
-      Add <code>switch_agent()</code> to update <code>agent_name</code> + push a system message confirming the switch.
-      The conversation is <strong>preserved</strong> &mdash; <code>conversation_id</code> stays the same.
+      <code>SlashCommandDef</code> struct with <code>name</code> and <code>description</code>.
+      Static <code>COMMANDS</code> array.
+      <code>filter_commands(prefix) -> Vec&lt;&SlashCommandDef&gt;</code> &mdash;
+      returns matching commands for a given prefix (case-insensitive).
+      <code>complete(prefix) -> Option&lt;&str&gt;</code> &mdash;
+      returns the full name of the top match for Tab completion.
     </td>
   </tr>
   <tr>
     <td><code>handler.rs</code></td>
     <td><span class="tag tag-mod">mod</span></td>
     <td>
-      On <code>Action::Submit</code>, check if input starts with <code>/switch</code>.
-      If so, transition to <code>AgentPicker</code> mode and fire the list-agents request.
-      Add a separate <code>handle_picker_key()</code> function for picker-mode keybindings
-      (arrow up/down, Enter, Esc, typing to filter).
+      Add <code>Action::TabComplete</code> for the Tab key.
+      In <code>apply_action()</code>: when Tab is pressed and input starts with <code>/</code>,
+      replace input content with the top match from the registry.
+      Existing <code>/switch</code> detection stays as-is.
     </td>
   </tr>
   <tr>
-    <td><code>ui/picker.rs</code></td>
+    <td><code>ui/command_menu.rs</code></td>
     <td><span class="tag tag-new">new</span></td>
     <td>
-      Centered overlay widget (50% width, up to 60% height).
-      Title: "Switch Agent". Search input at top, scrollable list below.
-      Each row: agent name (bold) + description (dimmed). Selected row highlighted.
-      Loading spinner while API call pending. "No agents found" empty state.
+      Inline popup rendered <strong>above</strong> the input box (anchored to its top edge).
+      Shows filtered commands from the registry. Each row: <code>/name</code> left-aligned,
+      description right-aligned (truncated). Top match highlighted.
+      Only rendered when input starts with <code>/</code> and at least one command matches.
     </td>
   </tr>
   <tr>
     <td><code>main.rs</code></td>
     <td><span class="tag tag-mod">mod</span></td>
     <td>
-      New <code>mpsc</code> channel for <code>AgentListEvent</code>.
-      Mode-aware event dispatch: in <code>Chat</code> mode, existing behavior;
-      in <code>AgentPicker</code> mode, delegate to picker handler.
-      On agent selected, call <code>client.set_agent()</code> + <code>app.switch_agent()</code>.
-    </td>
-  </tr>
-  <tr>
-    <td><code>ui/layout.rs</code></td>
-    <td><span class="tag tag-mod">mod</span></td>
-    <td>
-      After rendering the normal layout, if <code>app.mode() == AgentPicker</code>,
-      render the picker overlay on top (using <code>ratatui::widgets::Clear</code> + centered rect).
+      Pass <code>input.content()</code> to the draw closure.
+      Call <code>render_command_menu()</code> when appropriate.
     </td>
   </tr>
 </table>
 
-<!-- ───────────────── IMPLEMENTATION STEPS ───────────────── -->
-
-<h2>Implementation Steps</h2>
+<h3>Implementation steps</h3>
 
 <div class="card card-green">
-  <h3>Step 1 &mdash; API types + client method</h3>
-  <p>Add the Dust API types and <code>list_agents()</code> to the client. This is pure backend work, fully testable in isolation.</p>
+  <h3>Step 1 — Slash command registry</h3>
+  <p>Pure data + filtering logic, fully unit-testable.</p>
   <ul>
-    <li>Add <code>AgentInfo</code> and <code>ListAgentsResponse</code> to <code>dust/types.rs</code></li>
-    <li>Add <code>DustClient::list_agents()</code> in <code>dust/client.rs</code></li>
-    <li>Add <code>DustClient::set_agent(&mut self, id, name)</code></li>
-    <li>Unit tests for deserialization</li>
+    <li>Create <code>src/slash.rs</code> with <code>SlashCommandDef</code> and <code>COMMANDS</code></li>
+    <li>Implement <code>filter_commands(prefix)</code> &mdash; match <code>name.starts_with(prefix)</code></li>
+    <li>Implement <code>complete(prefix)</code> &mdash; return first match's full <code>/name</code></li>
+    <li>Tests: empty prefix returns all, partial prefix filters, no match returns empty, completion returns full name</li>
   </ul>
 </div>
 
 <div class="card card-green">
-  <h3>Step 2 &mdash; App mode + state</h3>
-  <p>Introduce <code>AppMode</code>, <code>PickerState</code>, and agent switching on the <code>App</code> struct.</p>
+  <h3>Step 2 — Tab completion in handler</h3>
+  <p>Wire Tab key to slash completion.</p>
   <ul>
-    <li>Add <code>AppMode</code> enum, <code>PickerState</code> struct to <code>app.rs</code></li>
-    <li>Add mode field + accessors: <code>mode()</code>, <code>enter_picker()</code>, <code>exit_picker()</code></li>
-    <li>Add <code>switch_agent(id, name)</code> &mdash; updates <code>agent_name</code>, pushes system message "Switched to {name}"</li>
-    <li>Add picker state mutation: <code>set_agents()</code>, <code>update_filter()</code>, <code>move_selection()</code></li>
-    <li>Unit tests for all state transitions</li>
+    <li>Add <code>Action::TabComplete</code> to the action enum</li>
+    <li>Map <code>KeyCode::Tab</code> &rarr; <code>Action::TabComplete</code></li>
+    <li>In <code>apply_action</code>: if input starts with <code>/</code>, call <code>complete()</code> and replace input buffer</li>
+    <li>If input doesn't start with <code>/</code>, Tab does nothing (for now)</li>
+    <li>Tests: Tab on <code>/sw</code> produces <code>/switch</code>, Tab on <code>/xyz</code> does nothing</li>
   </ul>
 </div>
 
 <div class="card card-green">
-  <h3>Step 3 &mdash; Slash command detection + picker keybindings</h3>
-  <p>Wire up the handler to intercept <code>/switch</code> and handle picker input.</p>
+  <h3>Step 3 — Inline command menu widget</h3>
+  <p>Render the filtered command list above the input box.</p>
   <ul>
-    <li>In <code>apply_action()</code>, on <code>Submit</code>: if content is <code>/switch</code>, enter picker mode instead of sending to Dust</li>
-    <li>New <code>PickerAction</code> enum: <code>MoveUp</code>, <code>MoveDown</code>, <code>Select</code>, <code>Cancel</code>, <code>Type(char)</code>, <code>Backspace</code></li>
-    <li>New <code>handle_picker_key()</code> function mapping keys to <code>PickerAction</code></li>
-    <li>New <code>apply_picker_action()</code> function applying actions to <code>PickerState</code></li>
-    <li>Return a new <code>ActionOutcome</code> variant for agent selection</li>
-    <li>Unit tests for slash command detection + picker key mapping</li>
+    <li>Create <code>src/ui/command_menu.rs</code></li>
+    <li>Takes: input content, input area <code>Rect</code></li>
+    <li>Renders above the input box, same width, height = number of matches (max 6)</li>
+    <li>Each row: <code>/name</code> (green, bold) + description (dim gray)</li>
+    <li>Top match has highlight background</li>
+    <li>Only renders when input starts with <code>/</code> and there are matches</li>
   </ul>
 </div>
 
 <div class="card card-green">
-  <h3>Step 4 &mdash; Picker UI widget</h3>
-  <p>Build the overlay widget in a new <code>ui/picker.rs</code> module.</p>
+  <h3>Step 4 — Main loop integration</h3>
+  <p>Wire rendering + ensure existing /switch flow still works.</p>
   <ul>
-    <li>Centered popup: <code>Clear</code> + <code>Block</code> with border + title "Switch Agent"</li>
-    <li>Search input line at top with cursor</li>
-    <li>Scrollable <code>List</code> widget below with filtered agents</li>
-    <li>Each item: <code>name</code> (white/bold) &mdash; <code>description</code> (dark gray, truncated)</li>
-    <li>Highlight style: accent background on selected row</li>
-    <li>Loading state: "Fetching agents..." centered</li>
-    <li>Empty state: "No agents match" centered</li>
-    <li>Footer hint: "↑↓ navigate  Enter select  Esc cancel"</li>
-  </ul>
-</div>
-
-<div class="card card-green">
-  <h3>Step 5 &mdash; Main loop integration</h3>
-  <p>Wire everything together in <code>main.rs</code>.</p>
-  <ul>
-    <li>New <code>mpsc::unbounded_channel&lt;Vec&lt;AgentInfo&gt;&gt;</code> for async agent list results</li>
-    <li>On <code>/switch</code> submit: spawn <code>client.list_agents()</code> task, send result through channel</li>
-    <li>In <code>tokio::select!</code>: add branch for agent list channel</li>
-    <li>On agent list received: update <code>PickerState</code> with agents, set <code>loading = false</code></li>
-    <li>On agent selected: call <code>app.switch_agent()</code>, update <code>DustClient</code> agent, return to Chat</li>
-    <li>Draw: conditionally render picker overlay based on <code>app.mode()</code></li>
-  </ul>
-</div>
-
-<div class="card card-green">
-  <h3>Step 6 &mdash; Integration testing</h3>
-  <p>TUI integration tests using tmux.</p>
-  <ul>
-    <li>Test: type <code>/switch</code> + Enter &rarr; picker overlay appears</li>
-    <li>Test: Esc closes picker, returns to chat</li>
-    <li>Test: status bar shows updated agent name after switch</li>
+    <li>In draw closure: call <code>render_command_menu()</code> with current input content</li>
+    <li>Verify: type <code>/</code> &rarr; menu shows, type <code>/switch</code> + Enter &rarr; picker opens</li>
+    <li>Verify: Tab completes, Backspace past <code>/</code> hides menu</li>
   </ul>
 </div>
 
@@ -591,39 +657,32 @@ src/
 <h2>Key Design Decisions</h2>
 
 <div class="card card-yellow">
-  <h3>Same conversation, different agent</h3>
+  <h3>Menu is not a mode</h3>
+  <p>
+    The command menu is a <strong>render-time decision</strong> based on the input buffer content,
+    not a separate <code>AppMode</code>. This keeps the state machine simple (only <code>Chat</code>
+    and <code>Picker</code>) and avoids needing to track menu open/close state.
+    The menu appears naturally when input starts with <code>/</code> and disappears
+    when it doesn't. See <strong>ADR-0008</strong>.
+  </p>
+</div>
+
+<div class="card card-yellow">
+  <h3>Same conversation on agent switch</h3>
   <p>
     Switching agents does <strong>not</strong> start a new conversation.
     The Dust API supports mentioning different agents within the same conversation
-    &mdash; the <code>mentions[].configurationId</code> field in each message body
-    controls which agent responds. This means:
+    via the <code>mentions[].configurationId</code> field. Context is preserved;
+    each message can target a different agent.
   </p>
-  <ul>
-    <li>Context from previous messages is preserved</li>
-    <li>The user can switch freely without losing history</li>
-    <li>Each message can target a different agent</li>
-  </ul>
 </div>
 
 <div class="card card-yellow">
   <h3>Client-side filtering</h3>
   <p>
-    We fetch the full agent list once when the picker opens and filter client-side.
-    The search API endpoint (<code>?q=</code>) exists as a fallback but most workspaces
-    have &lt;100 agents, making a single cached fetch more responsive than per-keystroke
-    API calls.
-  </p>
-</div>
-
-<div class="card card-yellow">
-  <h3>DustClient mutability</h3>
-  <p>
-    Currently <code>DustClient</code> is cloned per message-send task. To support switching,
-    we wrap <code>agent_id</code> in the client with a setter, or &mdash; simpler &mdash;
-    we pass the <code>agent_id</code> directly to <code>send_message_flow()</code> instead of
-    reading it from <code>self</code>. This avoids shared mutable state entirely.
-    The client already accepts <code>agent_id</code> as a parameter in
-    <code>create_conversation()</code> and <code>post_message()</code>.
+    Both the command menu and the agent picker use client-side filtering.
+    The command list is static. The agent list is fetched once per picker open.
+    This is more responsive than per-keystroke API calls.
   </p>
 </div>
 
@@ -634,10 +693,12 @@ src/
 <h2>Future Extensions</h2>
 <ul>
   <li><code>/switch &lt;name&gt;</code> &mdash; direct switch without picker if agent name is unambiguous</li>
+  <li><code>/clear</code> &mdash; clear conversation history</li>
+  <li><code>/new</code> &mdash; start a new conversation</li>
+  <li><code>/help</code> &mdash; show keybindings and commands</li>
   <li>Cache agent list for the session, refresh on demand</li>
+  <li>Down/Up arrow navigation within the command menu</li>
   <li>Show current agent as highlighted in the picker</li>
-  <li>Agent favorites / recently used sorting</li>
-  <li>Generic slash command framework for <code>/help</code>, <code>/clear</code>, <code>/new</code>, etc.</li>
 </ul>
 
 </body>
