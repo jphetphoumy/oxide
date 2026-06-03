@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oxide — Slash Commands &amp; Agent Switching</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-dim: #1f6feb33;
+      --green: #3fb950;
+      --green-dim: #23863533;
+      --yellow: #d29922;
+      --yellow-dim: #d2992233;
+      --red: #f85149;
+      --red-dim: #f8514933;
+      --orange: #db6d28;
+      --purple: #bc8cff;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    header .subtitle {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-top: 0.25rem;
+    }
+
+    .meta {
+      display: flex;
+      gap: 1.5rem;
+      margin-top: 0.75rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .meta span::before {
+      content: '■ ';
+      color: var(--accent);
+    }
+
+    .status-badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 3px;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-left: 0.5rem;
+    }
+
+    .done { background: var(--green-dim); color: var(--green); }
+    .todo { background: var(--yellow-dim); color: var(--yellow); }
+
+    h2 {
+      font-size: 1.1rem;
+      color: var(--green);
+      margin: 2rem 0 1rem;
+      border-left: 3px solid var(--green);
+      padding-left: 0.75rem;
+    }
+
+    h2.phase-done {
+      color: var(--text-muted);
+      border-left-color: var(--text-muted);
+    }
+
+    h3 {
+      font-size: 0.95rem;
+      color: var(--yellow);
+      margin: 1.5rem 0 0.5rem;
+    }
+
+    p, li {
+      font-size: 0.85rem;
+      color: var(--text);
+    }
+
+    ul, ol {
+      padding-left: 1.5rem;
+      margin: 0.5rem 0;
+    }
+
+    li { margin: 0.3rem 0; }
+
+    code {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      color: var(--purple);
+    }
+
+    pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem;
+      overflow-x: auto;
+      margin: 0.75rem 0;
+      font-size: 0.8rem;
+      line-height: 1.5;
+    }
+
+    pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      color: var(--text);
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin: 1rem 0;
+    }
+
+    .card-accent { border-left: 3px solid var(--accent); }
+    .card-green { border-left: 3px solid var(--green); }
+    .card-yellow { border-left: 3px solid var(--yellow); }
+    .card-muted { border-left: 3px solid var(--text-muted); opacity: 0.6; }
+
+    .endpoint {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0.5rem 0;
+    }
+
+    .method {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.15rem 0.5rem;
+      border-radius: 3px;
+      text-transform: uppercase;
+    }
+
+    .get { background: var(--green-dim); color: var(--green); }
+
+    .endpoint-path {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.75rem 0;
+      font-size: 0.8rem;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .tag {
+      font-size: 0.7rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      font-weight: 600;
+    }
+
+    .tag-new { background: var(--green-dim); color: var(--green); }
+    .tag-mod { background: var(--yellow-dim); color: var(--yellow); }
+
+    .flow-diagram {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      margin: 1rem 0;
+      font-size: 0.8rem;
+    }
+
+    .flow-step {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .flow-arrow {
+      color: var(--text-muted);
+      margin-left: 1.5rem;
+    }
+
+    .flow-label {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 0.35rem 0.75rem;
+      border-radius: 4px;
+    }
+
+    .flow-label.user { border-color: var(--accent); color: var(--accent); }
+    .flow-label.system { border-color: var(--green); color: var(--green); }
+    .flow-label.api { border-color: var(--yellow); color: var(--yellow); }
+    .flow-label.ui { border-color: var(--purple); color: var(--purple); }
+
+    .step-number {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 50%;
+      background: var(--accent-dim);
+      color: var(--accent);
+      font-size: 0.75rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .file-tree {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.8;
+    }
+
+    .file-tree .new { color: var(--green); }
+    .file-tree .mod { color: var(--yellow); }
+
+    hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 2rem 0;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin: 1rem 0;
+    }
+
+    .tui-mockup {
+      background: #000;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      font-size: 0.8rem;
+      line-height: 1.4;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+
+    .tui-mockup .prompt { color: var(--accent); }
+    .tui-mockup .hint { color: var(--text-muted); }
+    .tui-mockup .highlight { background: #333; display: inline-block; width: 100%; padding: 0 0.25rem; }
+    .tui-mockup .cmd { color: var(--green); font-weight: bold; }
+    .tui-mockup .desc { color: var(--text-muted); }
+    .tui-mockup .sep { color: #333; }
+
+    @media (max-width: 640px) {
+      .summary-grid { grid-template-columns: 1fr; }
+      body { padding: 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Slash Commands &amp; Agent Switching</h1>
+  <p class="subtitle">Inline command menu with <code>/</code> trigger, Tab completion, and <code>/switch</code> agent picker overlay</p>
+  <div class="meta">
+    <span>oxide v0.4.5</span>
+    <span>2026-06-03</span>
+    <span>ratatui + Dust API</span>
+    <span>ADR-0008</span>
+  </div>
+</header>
+
+<!-- ───────────────── OVERVIEW ───────────────── -->
+
+<h2>Overview</h2>
+
+<p>
+  This plan covers two interconnected features:
+</p>
+<ol>
+  <li><strong>Slash command framework</strong> &mdash; typing <code>/</code> in the input shows an inline
+    autocomplete menu listing available commands. Typing further filters the list. Tab completes the
+    top match. Enter submits the completed command.</li>
+  <li><strong><code>/switch</code> command</strong> &mdash; submitting <code>/switch</code> opens a
+    centered overlay to pick a different Dust agent, preserving the current conversation.</li>
+</ol>
+
+<div class="summary-grid">
+  <div class="card card-accent">
+    <h3>User experience</h3>
+    <ul>
+      <li>Type <code>/</code> &rarr; inline menu appears below input with available commands</li>
+      <li>Continue typing to filter &mdash; <code>/sw</code> narrows to <code>/switch</code></li>
+      <li>Tab completes the top match into the input</li>
+      <li>Enter submits the completed command</li>
+      <li><code>/switch</code> &rarr; centered overlay with agent list, filter, arrow keys, Enter to select</li>
+      <li>Esc dismisses either the menu or the picker</li>
+    </ul>
+  </div>
+  <div class="card card-accent">
+    <h3>Non-goals</h3>
+    <ul>
+      <li>Creating / editing agent configurations</li>
+      <li>Starting a new conversation on agent switch</li>
+      <li>Persisting agent choice to config file</li>
+      <li>Slash commands with arguments (e.g. <code>/switch &lt;name&gt;</code>)</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ───────────────── UX MOCKUPS ───────────────── -->
+
+<h2>UX Mockups</h2>
+
+<h3>1. Slash command menu (inline, below input)</h3>
+
+<div class="tui-mockup">
+<pre>
+────────────────────────────────────────────────────
+<span class="prompt">❯</span> /
+────────────────────────────────────────────────────
+<span class="highlight"><span class="cmd">/switch</span>  <span class="desc">Switch to a different agent</span></span>
+</pre>
+</div>
+
+<div class="tui-mockup">
+<pre>
+────────────────────────────────────────────────────
+<span class="prompt">❯</span> /sw
+────────────────────────────────────────────────────
+<span class="highlight"><span class="cmd">/switch</span>  <span class="desc">Switch to a different agent</span></span>
+</pre>
+</div>
+
+<p>When no commands match the filter, the menu disappears:</p>
+
+<div class="tui-mockup">
+<pre>
+────────────────────────────────────────────────────
+<span class="prompt">❯</span> /xyz
+────────────────────────────────────────────────────
+</pre>
+</div>
+
+<h3>2. Agent picker overlay (centered, after submitting /switch)</h3>
+
+<div class="tui-mockup">
+<pre>
+  ┌─ Switch Agent ──────────────────────────┐
+  │ <span class="prompt">/</span> <span class="hint">Type to filter...</span>                     │
+  │ ──────────────────────────────────────── │
+  │ <span class="highlight"> <span class="cmd">dust</span>      <span class="desc">General-purpose assistant</span>   </span> │
+  │   <span class="cmd">helper</span>    <span class="desc">Code helper</span>                  │
+  │   <span class="cmd">reviewer</span>  <span class="desc">PR review agent</span>              │
+  │                                          │
+  │ <span class="hint">↑↓ navigate  Enter select  Esc cancel</span>  │
+  └──────────────────────────────────────────┘
+</pre>
+</div>
+
+<!-- ───────────────── DUST API ───────────────── -->
+
+<h2>Dust API Surface</h2>
+
+<div class="card">
+  <p style="color: var(--text-muted); margin-bottom: 0.75rem;">Two endpoints are relevant (used by <code>/switch</code>):</p>
+
+  <div class="endpoint">
+    <span class="method get">GET</span>
+    <span class="endpoint-path">/api/v1/w/{wId}/assistant/agent_configurations?view=list</span>
+  </div>
+  <p>Lists all accessible agents for the authenticated user.</p>
+  <pre><code>{
+  "agentConfigurations": [
+    { "sId": "abc123", "name": "dust", "description": "General-purpose assistant", "scope": "workspace" },
+    ...
+  ]
+}</code></pre>
+
+  <div class="endpoint" style="margin-top: 1rem;">
+    <span class="method get">GET</span>
+    <span class="endpoint-path">/api/v1/w/{wId}/assistant/agent_configurations/search?q={query}</span>
+  </div>
+  <p>Server-side name search. Available as fallback; we prefer client-side filtering.</p>
+</div>
+
+<!-- ───────────────── ARCHITECTURE ───────────────── -->
+
+<h2>Architecture</h2>
+
+<h3>Slash command registry</h3>
+
+<p>Commands are defined in a static registry. Each entry has a name, description, and the
+  action to perform when submitted. This makes it trivial to add new commands later.</p>
+
+<pre><code>struct SlashCommandDef {
+    name: &'static str,        // e.g. "switch"
+    slash_name: &'static str,  // e.g. "/switch" (for Tab completion)
+    description: &'static str, // e.g. "Switch to a different agent"
+}
+
+const COMMANDS: &[SlashCommandDef] = &[
+    SlashCommandDef { name: "switch", slash_name: "/switch",
+                      description: "Switch to a different agent" },
+    // future: { name: "clear", ... },
+];</code></pre>
+
+<h3>App mode state machine</h3>
+
+<pre><code>enum AppMode {
+    Chat,                     // normal input — if text starts with "/" show command menu
+    Picker(PickerState),      // /switch overlay (already implemented)
+}
+
+// The command menu is NOT a mode — it's a UI hint rendered when
+// the input buffer starts with "/" while in Chat mode.</code></pre>
+
+<h3>Input-driven command menu</h3>
+
+<p>The command menu is <strong>not</strong> a separate app mode. It is rendered as an inline
+  popup <strong>whenever the input buffer starts with <code>/</code></strong> during
+  <code>Chat</code> mode. This keeps the state machine simple:</p>
+
+<ul>
+  <li>Rendering checks <code>input.content().starts_with('/')</code></li>
+  <li>The filter text is everything after <code>/</code></li>
+  <li>Tab inserts the top match's full name (replacing current input)</li>
+  <li>Enter on a completed command triggers the command action</li>
+  <li>Esc or Backspace past <code>/</code> dismisses the menu naturally</li>
+</ul>
+
+<h3>User flow — command menu</h3>
+
+<div class="flow-diagram">
+  <div class="flow-step">
+    <span class="step-number">1</span>
+    <span class="flow-label user">User types <code>/</code></span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">2</span>
+    <span class="flow-label ui">Inline menu appears above input with matching commands</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">3</span>
+    <span class="flow-label user">User types more chars to filter (e.g. <code>/sw</code>)</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">4</span>
+    <span class="flow-label user">Tab &rarr; top match auto-completed into input (<code>/switch</code>)</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">5</span>
+    <span class="flow-label user">Enter &rarr; command submitted</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">6</span>
+    <span class="flow-label system">Handler dispatches to command action (e.g. open agent picker)</span>
+  </div>
+</div>
+
+<h3>User flow — agent picker (unchanged)</h3>
+
+<div class="flow-diagram">
+  <div class="flow-step">
+    <span class="step-number">1</span>
+    <span class="flow-label system"><code>/switch</code> submitted &rarr; enter <code>Picker</code> mode + fetch agents</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">2</span>
+    <span class="flow-label ui">Centered overlay with search + scrollable agent list</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">3</span>
+    <span class="flow-label user">Filter / arrow / Enter to select (Esc to cancel)</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">4</span>
+    <span class="flow-label system">App updates <code>agent_id</code> + <code>agent_name</code>, returns to Chat</span>
+  </div>
+</div>
+
+<!-- ───────────────── PHASE 1 (DONE) ───────────────── -->
+
+<h2 class="phase-done">Phase 1 — <code>/switch</code> Agent Picker <span class="status-badge done">done</span></h2>
+
+<p style="color: var(--text-muted);">Implemented in commit <code>60517a9</code> on <code>feat/switch-agent</code>.</p>
+
+<div class="card card-muted">
+  <h3>What was built</h3>
+  <ul>
+    <li><code>AgentInfo</code>, <code>ListAgentsResponse</code> types in <code>dust/types.rs</code></li>
+    <li><code>DustClient::list_agents()</code>, <code>set_agent()</code> in <code>dust/client.rs</code></li>
+    <li><code>AppMode</code> enum, <code>PickerState</code>, picker methods in <code>app.rs</code></li>
+    <li><code>SlashCommand</code>, <code>PickerAction</code>, <code>handle_picker_key()</code> in <code>handler.rs</code></li>
+    <li>Centered picker overlay in <code>ui/picker.rs</code></li>
+    <li>Mode-aware main loop in <code>main.rs</code></li>
+    <li>142 tests passing, 0 clippy warnings</li>
+  </ul>
+</div>
+
+<!-- ───────────────── PHASE 2 (DONE) ───────────────── -->
+
+<h2 class="phase-done">Phase 2 — Slash Command Framework <span class="status-badge done">done</span></h2>
+
+<p style="color: var(--text-muted);">Implemented on <code>feat/switch-agent</code>. 158 tests passing, 0 new clippy warnings.</p>
+
+<div class="card card-muted">
+  <h3>What was built</h3>
+  <ul>
+    <li><code>src/slash.rs</code> &mdash; <code>SlashCommandDef</code> with <code>name</code>, <code>slash_name</code>, <code>description</code>.
+      Static <code>COMMANDS</code> array (currently <code>/switch</code>).
+      <code>filter_commands(prefix)</code> using case-insensitive <code>starts_with</code> matching.
+      <code>complete(prefix)</code> returns the top match's <code>slash_name</code> for Tab completion.
+      10 unit tests.</li>
+    <li><code>handler.rs</code> &mdash; <code>Action::TabComplete</code> mapped to <code>KeyCode::Tab</code>.
+      In <code>apply_action()</code>: when input starts with <code>/</code>, strips the prefix,
+      calls <code>slash::complete()</code>, and replaces input via <code>InputBuffer::set_content()</code>.
+      4 new tests (Tab key mapping, completion with match, no match, without slash).</li>
+    <li><code>input_buffer.rs</code> &mdash; new <code>set_content(&mut self, content: &str)</code> method
+      that replaces buffer content and moves cursor to end. 1 new test.</li>
+    <li><code>src/ui/command_menu.rs</code> &mdash; inline popup rendered <strong>above</strong> the input box,
+      same width, anchored to input top edge. Shows up to 6 filtered commands.
+      Each row: <code>/name</code> (green, bold) left-aligned + description (dim gray) right-aligned.
+      Only rendered when input starts with <code>/</code> and at least one command matches.
+      Disappears automatically when no commands match. 1 test.</li>
+    <li><code>main.rs</code> &mdash; <code>render_command_menu()</code> called in draw closure with
+      <code>input.content()</code> and <code>layout.input</code> rect.</li>
+    <li><code>ui/mod.rs</code> &mdash; exports <code>render_command_menu</code>.</li>
+  </ul>
+</div>
+
+<!-- ───────────────── KEY DECISIONS ───────────────── -->
+
+<h2>Key Design Decisions</h2>
+
+<div class="card card-yellow">
+  <h3>Menu is not a mode</h3>
+  <p>
+    The command menu is a <strong>render-time decision</strong> based on the input buffer content,
+    not a separate <code>AppMode</code>. This keeps the state machine simple (only <code>Chat</code>
+    and <code>Picker</code>) and avoids needing to track menu open/close state.
+    The menu appears naturally when input starts with <code>/</code> and disappears
+    when it doesn't. See <strong>ADR-0008</strong>.
+  </p>
+</div>
+
+<div class="card card-yellow">
+  <h3>Same conversation on agent switch</h3>
+  <p>
+    Switching agents does <strong>not</strong> start a new conversation.
+    The Dust API supports mentioning different agents within the same conversation
+    via the <code>mentions[].configurationId</code> field. Context is preserved;
+    each message can target a different agent.
+  </p>
+</div>
+
+<div class="card card-yellow">
+  <h3>Client-side filtering</h3>
+  <p>
+    Both the command menu and the agent picker use client-side filtering.
+    The command list is static. The agent list is fetched once per picker open.
+    This is more responsive than per-keystroke API calls.
+  </p>
+</div>
+
+<!-- ───────────────── FUTURE ───────────────── -->
+
+<hr>
+
+<h2>Future Extensions</h2>
+<ul>
+  <li><code>/switch &lt;name&gt;</code> &mdash; direct switch without picker if agent name is unambiguous</li>
+  <li><code>/clear</code> &mdash; clear conversation history</li>
+  <li><code>/new</code> &mdash; start a new conversation</li>
+  <li><code>/help</code> &mdash; show keybindings and commands</li>
+  <li>Cache agent list for the session, refresh on demand</li>
+  <li>Down/Up arrow navigation within the command menu</li>
+  <li>Show current agent as highlighted in the picker</li>
+</ul>
+
+</body>
+</html>

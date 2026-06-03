@@ -24,7 +24,7 @@ Before committing, ensure:
 
 - `cargo fmt` — code is formatted
 - `cargo check` — code compiles
-- `cargo clippy` — no lint warnings
+- `cargo clippy -- -W clippy::all -W clippy::pedantic -W clippy::nursery` — no lint warnings (strict mode)
 - `cargo test` — all tests pass
 
 ## TUI Testing with tmux

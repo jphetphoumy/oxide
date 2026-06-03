@@ -30,7 +30,9 @@ pub fn input_height(lines: &[String], terminal_width: u16, terminal_height: u16)
             }
         })
         .sum();
-    let height = (visual_lines as u16).saturating_add(2); // +2 for borders
+    let height = u16::try_from(visual_lines)
+        .unwrap_or(u16::MAX)
+        .saturating_add(2); // +2 for borders
     let max_height = terminal_height / 2;
     height.clamp(3, max_height.max(3))
 }
