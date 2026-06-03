@@ -1,0 +1,26 @@
+{
+  "skill_name": "oxide-check",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Run the oxide checks",
+      "expected_output": "Runs fmt --check, cargo check, clippy with strict flags, and cargo test sequentially",
+      "assertions": [
+        "Runs cargo fmt -- --check",
+        "Runs cargo check",
+        "Runs cargo clippy with pedantic and nursery warnings",
+        "Runs cargo test",
+        "Stops at first failure if any step fails"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Clippy is failing with unwrap_used, fix it",
+      "expected_output": "Identifies the unwrap call and replaces it with proper error handling using anyhow",
+      "assertions": [
+        "Recognizes unwrap_used is a deny-level lint",
+        "Suggests using anyhow Result or proper error handling instead of unwrap"
+      ]
+    }
+  ]
+}
