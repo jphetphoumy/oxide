@@ -35,12 +35,16 @@ When a slash command requires its own UI (like `/switch` needing an agent picker
 
 ### Command registry: static array
 
-Commands are defined as a `const` array of `SlashCommandDef { name, description }`. Filtering and completion are pure functions over this array. Adding a new command requires only adding an entry to the array and a match arm in the handler.
+Commands are defined as a `const` array of `SlashCommandDef { name, slash_name, description }`. The `slash_name` field stores the full `/name` string for Tab completion output. Filtering uses case-insensitive `starts_with` matching on `name` — typing `/sw` matches `switch`, but `/w` does not. Filtering and completion are pure functions over this array (`filter_commands`, `complete`). Adding a new command requires adding an entry to the `COMMANDS` array, a `SlashCommand` enum variant, and a match arm in `parse_slash_command`.
+
+### Tab completion via `InputBuffer::set_content`
+
+Tab completion replaces the entire input buffer with the completed command. A new `set_content` method on `InputBuffer` handles this, setting content and moving the cursor to end. The `Action::TabComplete` variant is only active when the input starts with `/` — otherwise Tab is a no-op, leaving it available for future uses (e.g. file path completion).
 
 ## Consequences
 
 - The `AppMode` enum stays small — only modes that need their own keybindings and rendering (like `Picker`) are added.
 - The command menu is zero-cost when the user isn't typing `/` — no state tracking, no mode transitions.
-- Tab completion is tied to the `/` prefix — Tab does nothing when the input doesn't start with `/`, leaving it available for future uses (e.g. file path completion).
-- Adding new slash commands is a two-step process: add to registry, add handler match arm. No UI changes needed.
-- The inline menu position (above input) may overlap with short message areas on small terminals. This is acceptable since the menu is transient and shows at most a handful of items.
+- `starts_with` filtering is strict and predictable — users must type the beginning of the command name, not arbitrary substrings.
+- Adding new slash commands is a three-step process: add to `COMMANDS` array, add `SlashCommand` variant, add handler match arm. No UI changes needed.
+- The inline menu position (above input) may overlap with short message areas on small terminals. This is acceptable since the menu is transient and shows at most 6 items.

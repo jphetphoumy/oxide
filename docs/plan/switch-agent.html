@@ -432,13 +432,14 @@
 
 <pre><code>struct SlashCommandDef {
     name: &'static str,        // e.g. "switch"
+    slash_name: &'static str,  // e.g. "/switch" (for Tab completion)
     description: &'static str, // e.g. "Switch to a different agent"
 }
 
 const COMMANDS: &[SlashCommandDef] = &[
-    SlashCommandDef { name: "switch", description: "Switch to a different agent" },
-    // future: { name: "clear", description: "Clear conversation" },
-    // future: { name: "new", description: "Start new conversation" },
+    SlashCommandDef { name: "switch", slash_name: "/switch",
+                      description: "Switch to a different agent" },
+    // future: { name: "clear", ... },
 ];</code></pre>
 
 <h3>App mode state machine</h3>
@@ -475,7 +476,7 @@ const COMMANDS: &[SlashCommandDef] = &[
   <div class="flow-arrow">&darr;</div>
   <div class="flow-step">
     <span class="step-number">2</span>
-    <span class="flow-label ui">Inline menu appears below input with all commands</span>
+    <span class="flow-label ui">Inline menu appears above input with matching commands</span>
   </div>
   <div class="flow-arrow">&darr;</div>
   <div class="flow-step">
@@ -542,113 +543,34 @@ const COMMANDS: &[SlashCommandDef] = &[
   </ul>
 </div>
 
-<!-- ───────────────── PHASE 2 (TODO) ───────────────── -->
+<!-- ───────────────── PHASE 2 (DONE) ───────────────── -->
 
-<h2>Phase 2 — Slash Command Framework <span class="status-badge todo">todo</span></h2>
+<h2 class="phase-done">Phase 2 — Slash Command Framework <span class="status-badge done">done</span></h2>
 
-<h3>File changes</h3>
+<p style="color: var(--text-muted);">Implemented on <code>feat/switch-agent</code>. 158 tests passing, 0 new clippy warnings.</p>
 
-<div class="file-tree">
-<pre>
-src/
-├── <span class="new">slash.rs</span>          ← new: command registry, matching, completion
-├── <span class="mod">handler.rs</span>       ← add Tab action, integrate slash registry
-├── <span class="mod">app.rs</span>           ← no mode change needed (menu is render-only)
-├── <span class="mod">main.rs</span>          ← pass input content to renderer for menu
-├── <span class="new">ui/command_menu.rs</span> ← new: inline popup below input
-└── <span class="mod">ui/mod.rs</span>        ← export command_menu
-</pre>
-</div>
-
-<table>
-  <tr><th>File</th><th>Change</th><th>Details</th></tr>
-  <tr>
-    <td><code>slash.rs</code></td>
-    <td><span class="tag tag-new">new</span></td>
-    <td>
-      <code>SlashCommandDef</code> struct with <code>name</code> and <code>description</code>.
-      Static <code>COMMANDS</code> array.
-      <code>filter_commands(prefix) -> Vec&lt;&SlashCommandDef&gt;</code> &mdash;
-      returns matching commands for a given prefix (case-insensitive).
-      <code>complete(prefix) -> Option&lt;&str&gt;</code> &mdash;
-      returns the full name of the top match for Tab completion.
-    </td>
-  </tr>
-  <tr>
-    <td><code>handler.rs</code></td>
-    <td><span class="tag tag-mod">mod</span></td>
-    <td>
-      Add <code>Action::TabComplete</code> for the Tab key.
-      In <code>apply_action()</code>: when Tab is pressed and input starts with <code>/</code>,
-      replace input content with the top match from the registry.
-      Existing <code>/switch</code> detection stays as-is.
-    </td>
-  </tr>
-  <tr>
-    <td><code>ui/command_menu.rs</code></td>
-    <td><span class="tag tag-new">new</span></td>
-    <td>
-      Inline popup rendered <strong>above</strong> the input box (anchored to its top edge).
-      Shows filtered commands from the registry. Each row: <code>/name</code> left-aligned,
-      description right-aligned (truncated). Top match highlighted.
+<div class="card card-muted">
+  <h3>What was built</h3>
+  <ul>
+    <li><code>src/slash.rs</code> &mdash; <code>SlashCommandDef</code> with <code>name</code>, <code>slash_name</code>, <code>description</code>.
+      Static <code>COMMANDS</code> array (currently <code>/switch</code>).
+      <code>filter_commands(prefix)</code> using case-insensitive <code>starts_with</code> matching.
+      <code>complete(prefix)</code> returns the top match's <code>slash_name</code> for Tab completion.
+      10 unit tests.</li>
+    <li><code>handler.rs</code> &mdash; <code>Action::TabComplete</code> mapped to <code>KeyCode::Tab</code>.
+      In <code>apply_action()</code>: when input starts with <code>/</code>, strips the prefix,
+      calls <code>slash::complete()</code>, and replaces input via <code>InputBuffer::set_content()</code>.
+      4 new tests (Tab key mapping, completion with match, no match, without slash).</li>
+    <li><code>input_buffer.rs</code> &mdash; new <code>set_content(&mut self, content: &str)</code> method
+      that replaces buffer content and moves cursor to end. 1 new test.</li>
+    <li><code>src/ui/command_menu.rs</code> &mdash; inline popup rendered <strong>above</strong> the input box,
+      same width, anchored to input top edge. Shows up to 6 filtered commands.
+      Each row: <code>/name</code> (green, bold) left-aligned + description (dim gray) right-aligned.
       Only rendered when input starts with <code>/</code> and at least one command matches.
-    </td>
-  </tr>
-  <tr>
-    <td><code>main.rs</code></td>
-    <td><span class="tag tag-mod">mod</span></td>
-    <td>
-      Pass <code>input.content()</code> to the draw closure.
-      Call <code>render_command_menu()</code> when appropriate.
-    </td>
-  </tr>
-</table>
-
-<h3>Implementation steps</h3>
-
-<div class="card card-green">
-  <h3>Step 1 — Slash command registry</h3>
-  <p>Pure data + filtering logic, fully unit-testable.</p>
-  <ul>
-    <li>Create <code>src/slash.rs</code> with <code>SlashCommandDef</code> and <code>COMMANDS</code></li>
-    <li>Implement <code>filter_commands(prefix)</code> &mdash; match <code>name.starts_with(prefix)</code></li>
-    <li>Implement <code>complete(prefix)</code> &mdash; return first match's full <code>/name</code></li>
-    <li>Tests: empty prefix returns all, partial prefix filters, no match returns empty, completion returns full name</li>
-  </ul>
-</div>
-
-<div class="card card-green">
-  <h3>Step 2 — Tab completion in handler</h3>
-  <p>Wire Tab key to slash completion.</p>
-  <ul>
-    <li>Add <code>Action::TabComplete</code> to the action enum</li>
-    <li>Map <code>KeyCode::Tab</code> &rarr; <code>Action::TabComplete</code></li>
-    <li>In <code>apply_action</code>: if input starts with <code>/</code>, call <code>complete()</code> and replace input buffer</li>
-    <li>If input doesn't start with <code>/</code>, Tab does nothing (for now)</li>
-    <li>Tests: Tab on <code>/sw</code> produces <code>/switch</code>, Tab on <code>/xyz</code> does nothing</li>
-  </ul>
-</div>
-
-<div class="card card-green">
-  <h3>Step 3 — Inline command menu widget</h3>
-  <p>Render the filtered command list above the input box.</p>
-  <ul>
-    <li>Create <code>src/ui/command_menu.rs</code></li>
-    <li>Takes: input content, input area <code>Rect</code></li>
-    <li>Renders above the input box, same width, height = number of matches (max 6)</li>
-    <li>Each row: <code>/name</code> (green, bold) + description (dim gray)</li>
-    <li>Top match has highlight background</li>
-    <li>Only renders when input starts with <code>/</code> and there are matches</li>
-  </ul>
-</div>
-
-<div class="card card-green">
-  <h3>Step 4 — Main loop integration</h3>
-  <p>Wire rendering + ensure existing /switch flow still works.</p>
-  <ul>
-    <li>In draw closure: call <code>render_command_menu()</code> with current input content</li>
-    <li>Verify: type <code>/</code> &rarr; menu shows, type <code>/switch</code> + Enter &rarr; picker opens</li>
-    <li>Verify: Tab completes, Backspace past <code>/</code> hides menu</li>
+      Disappears automatically when no commands match. 1 test.</li>
+    <li><code>main.rs</code> &mdash; <code>render_command_menu()</code> called in draw closure with
+      <code>input.content()</code> and <code>layout.input</code> rect.</li>
+    <li><code>ui/mod.rs</code> &mdash; exports <code>render_command_menu</code>.</li>
   </ul>
 </div>
 
