@@ -51,6 +51,14 @@ tmux kill-session -t oxide-test
 
 Always capture the pane after sending keys (with a short sleep) to verify the UI rendered correctly.
 
+## Clippy
+
+Run clippy in strict mode (pedantic + nursery). All new code must pass with zero warnings:
+
+```sh
+cargo clippy -- -W clippy::all -W clippy::pedantic -W clippy::nursery
+```
+
 ## Pre-commit
 
 Hooks run automatically on commit (`cargo fmt`, `cargo check`, `clippy`). To install manually:

@@ -1,5 +1,21 @@
 use std::path::{Path, PathBuf};
 
+use crate::dust::types::AgentInfo;
+
+#[derive(Debug, Clone)]
+pub struct PickerState {
+    pub agents: Vec<AgentInfo>,
+    pub filter: String,
+    pub selected: usize,
+    pub loading: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum AppMode {
+    Chat,
+    Picker(PickerState),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Role {
     User,
@@ -17,11 +33,13 @@ pub struct App {
     messages: Vec<Message>,
     scroll_offset: usize,
     agent_name: String,
+    agent_id: String,
     cwd: PathBuf,
     home_dir: Option<PathBuf>,
     should_quit: bool,
     conversation_id: Option<String>,
     is_streaming: bool,
+    mode: AppMode,
 }
 
 impl App {
@@ -30,11 +48,13 @@ impl App {
             messages: Vec::new(),
             scroll_offset: 0,
             agent_name: agent_name.to_string(),
+            agent_id: agent_name.to_string(),
             cwd: cwd.into(),
             home_dir,
             should_quit: false,
             conversation_id: None,
             is_streaming: false,
+            mode: AppMode::Chat,
         }
     }
 
@@ -148,11 +168,106 @@ impl App {
     pub fn scroll_down(&mut self, lines: usize) {
         self.scroll_offset = self.scroll_offset.saturating_sub(lines);
     }
+
+    pub const fn mode(&self) -> &AppMode {
+        &self.mode
+    }
+
+    pub fn enter_picker(&mut self) {
+        self.mode = AppMode::Picker(PickerState {
+            agents: Vec::new(),
+            filter: String::new(),
+            selected: 0,
+            loading: true,
+        });
+    }
+
+    pub fn exit_picker(&mut self) {
+        self.mode = AppMode::Chat;
+    }
+
+    pub fn set_picker_agents(&mut self, agents: Vec<AgentInfo>) {
+        if let AppMode::Picker(state) = &mut self.mode {
+            state.agents = agents;
+            state.loading = false;
+            state.selected = 0;
+        }
+    }
+
+    pub fn set_picker_filter(&mut self, filter: &str) {
+        if let AppMode::Picker(state) = &mut self.mode {
+            state.filter = filter.to_string();
+            state.selected = 0;
+        }
+    }
+
+    pub fn picker_filtered_agents(&self) -> Vec<&AgentInfo> {
+        if let AppMode::Picker(state) = &self.mode {
+            if state.filter.is_empty() {
+                state.agents.iter().collect()
+            } else {
+                let filter = state.filter.to_lowercase();
+                state
+                    .agents
+                    .iter()
+                    .filter(|a| {
+                        a.name.to_lowercase().contains(&filter)
+                            || a.description.to_lowercase().contains(&filter)
+                    })
+                    .collect()
+            }
+        } else {
+            Vec::new()
+        }
+    }
+
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn picker_selected(&self) -> usize {
+        if let AppMode::Picker(state) = &self.mode {
+            state.selected
+        } else {
+            0
+        }
+    }
+
+    pub fn picker_move_selection(&mut self, delta: i32) {
+        if let AppMode::Picker(state) = &mut self.mode {
+            let count = if state.filter.is_empty() {
+                state.agents.len()
+            } else {
+                let filter = state.filter.to_lowercase();
+                state
+                    .agents
+                    .iter()
+                    .filter(|a| {
+                        a.name.to_lowercase().contains(&filter)
+                            || a.description.to_lowercase().contains(&filter)
+                    })
+                    .count()
+            };
+            if count == 0 {
+                return;
+            }
+            if delta > 0 {
+                state.selected = (state.selected + 1) % count;
+            } else {
+                state.selected = state.selected.checked_sub(1).unwrap_or(count - 1);
+            }
+        }
+    }
+
+    pub fn switch_agent(&mut self, agent_id: &str, agent_name: &str) {
+        self.agent_id = agent_id.to_string();
+        self.agent_name = agent_name.to_string();
+        self.push_system_message(&format!("Switched to {agent_name}"));
+        self.mode = AppMode::Chat;
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dust::types::AgentInfo;
     use std::path::PathBuf;
 
     #[test]
@@ -285,6 +400,162 @@ mod tests {
         app.scroll_up(4);
         app.complete_stream(Some("final answer"));
         assert_eq!(app.scroll_offset(), 4);
+    }
+
+    #[test]
+    fn new_app_starts_in_chat_mode() {
+        let app = App::new("a", "/workspace", None);
+        assert!(matches!(app.mode(), AppMode::Chat));
+    }
+
+    #[test]
+    fn enter_picker_switches_mode() {
+        let mut app = App::new("a", "/workspace", None);
+        app.enter_picker();
+        assert!(matches!(app.mode(), AppMode::Picker(_)));
+    }
+
+    #[test]
+    fn enter_picker_starts_loading() {
+        let mut app = App::new("a", "/workspace", None);
+        app.enter_picker();
+        if let AppMode::Picker(state) = app.mode() {
+            assert!(state.loading);
+            assert!(state.agents.is_empty());
+            assert!(state.filter.is_empty());
+            assert_eq!(state.selected, 0);
+        } else {
+            panic!("expected Picker mode");
+        }
+    }
+
+    #[test]
+    fn exit_picker_returns_to_chat() {
+        let mut app = App::new("a", "/workspace", None);
+        app.enter_picker();
+        app.exit_picker();
+        assert!(matches!(app.mode(), AppMode::Chat));
+    }
+
+    #[test]
+    fn set_picker_agents_updates_state() {
+        let mut app = App::new("a", "/workspace", None);
+        app.enter_picker();
+        let agents = vec![
+            AgentInfo {
+                s_id: "a1".into(),
+                name: "dust".into(),
+                description: "General".into(),
+                scope: "workspace".into(),
+            },
+            AgentInfo {
+                s_id: "a2".into(),
+                name: "helper".into(),
+                description: "Code".into(),
+                scope: "published".into(),
+            },
+        ];
+        app.set_picker_agents(agents);
+        if let AppMode::Picker(state) = app.mode() {
+            assert_eq!(state.agents.len(), 2);
+            assert!(!state.loading);
+        } else {
+            panic!("expected Picker mode");
+        }
+    }
+
+    #[test]
+    fn picker_filter_narrows_results() {
+        let mut app = App::new("a", "/workspace", None);
+        app.enter_picker();
+        app.set_picker_agents(vec![
+            AgentInfo {
+                s_id: "a1".into(),
+                name: "dust".into(),
+                description: "".into(),
+                scope: "".into(),
+            },
+            AgentInfo {
+                s_id: "a2".into(),
+                name: "helper".into(),
+                description: "".into(),
+                scope: "".into(),
+            },
+        ]);
+        app.set_picker_filter("hel");
+        let filtered = app.picker_filtered_agents();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "helper");
+    }
+
+    #[test]
+    fn picker_filter_is_case_insensitive() {
+        let mut app = App::new("a", "/workspace", None);
+        app.enter_picker();
+        app.set_picker_agents(vec![AgentInfo {
+            s_id: "a1".into(),
+            name: "Dust".into(),
+            description: "".into(),
+            scope: "".into(),
+        }]);
+        app.set_picker_filter("dust");
+        assert_eq!(app.picker_filtered_agents().len(), 1);
+    }
+
+    #[test]
+    fn picker_selection_wraps() {
+        let mut app = App::new("a", "/workspace", None);
+        app.enter_picker();
+        app.set_picker_agents(vec![
+            AgentInfo {
+                s_id: "a1".into(),
+                name: "one".into(),
+                description: "".into(),
+                scope: "".into(),
+            },
+            AgentInfo {
+                s_id: "a2".into(),
+                name: "two".into(),
+                description: "".into(),
+                scope: "".into(),
+            },
+        ]);
+        app.picker_move_selection(1);
+        assert_eq!(app.picker_selected(), 1);
+        app.picker_move_selection(1); // wraps to 0
+        assert_eq!(app.picker_selected(), 0);
+    }
+
+    #[test]
+    fn picker_move_up_wraps_to_end() {
+        let mut app = App::new("a", "/workspace", None);
+        app.enter_picker();
+        app.set_picker_agents(vec![
+            AgentInfo {
+                s_id: "a1".into(),
+                name: "one".into(),
+                description: "".into(),
+                scope: "".into(),
+            },
+            AgentInfo {
+                s_id: "a2".into(),
+                name: "two".into(),
+                description: "".into(),
+                scope: "".into(),
+            },
+        ]);
+        app.picker_move_selection(-1); // wraps to last
+        assert_eq!(app.picker_selected(), 1);
+    }
+
+    #[test]
+    fn switch_agent_updates_name_and_pushes_system_message() {
+        let mut app = App::new("old-agent", "/workspace", None);
+        app.switch_agent("new-id", "new-agent");
+        assert_eq!(app.agent_name(), "new-agent");
+        assert_eq!(app.messages().len(), 1);
+        assert_eq!(app.messages()[0].role, Role::System);
+        assert!(app.messages()[0].content.contains("new-agent"));
     }
 
     #[test]

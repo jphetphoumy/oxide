@@ -118,6 +118,23 @@ pub enum StreamEvent {
     Unknown,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AgentInfo {
+    #[serde(rename = "sId")]
+    pub s_id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub scope: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListAgentsResponse {
+    pub agent_configurations: Vec<AgentInfo>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,5 +212,65 @@ mod tests {
         assert!(json.get("title").is_none());
         assert!(json.get("visibility").is_none());
         assert_eq!(json["content"], "follow up");
+    }
+
+    #[test]
+    fn agent_info_deserializes_from_api_response() {
+        let json = r#"{
+            "sId": "abc123",
+            "name": "dust",
+            "description": "General-purpose assistant",
+            "scope": "workspace"
+        }"#;
+
+        let agent = serde_json::from_str::<AgentInfo>(json).expect("deserialize");
+        assert_eq!(agent.s_id, "abc123");
+        assert_eq!(agent.name, "dust");
+        assert_eq!(agent.description, "General-purpose assistant");
+        assert_eq!(agent.scope, "workspace");
+    }
+
+    #[test]
+    fn agent_info_handles_missing_description() {
+        let json = r#"{
+            "sId": "abc123",
+            "name": "dust",
+            "scope": "global"
+        }"#;
+
+        let agent = serde_json::from_str::<AgentInfo>(json).expect("deserialize");
+        assert_eq!(agent.description, "");
+    }
+
+    #[test]
+    fn list_agents_response_deserializes_array() {
+        let json = r#"{
+            "agentConfigurations": [
+                {
+                    "sId": "a1",
+                    "name": "dust",
+                    "description": "General assistant",
+                    "scope": "workspace"
+                },
+                {
+                    "sId": "a2",
+                    "name": "helper",
+                    "description": "Code helper",
+                    "scope": "published"
+                }
+            ]
+        }"#;
+
+        let response = serde_json::from_str::<ListAgentsResponse>(json).expect("deserialize");
+        assert_eq!(response.agent_configurations.len(), 2);
+        assert_eq!(response.agent_configurations[0].name, "dust");
+        assert_eq!(response.agent_configurations[1].name, "helper");
+    }
+
+    #[test]
+    fn list_agents_response_handles_empty_array() {
+        let json = r#"{"agentConfigurations": []}"#;
+        let response = serde_json::from_str::<ListAgentsResponse>(json).expect("deserialize");
+        assert!(response.agent_configurations.is_empty());
     }
 }

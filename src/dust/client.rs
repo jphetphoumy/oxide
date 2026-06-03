@@ -7,8 +7,9 @@ use tracing::{debug, error, trace};
 use crate::auth::{token_refresh, token_storage};
 use crate::dust::stream::EventStream;
 use crate::dust::types::{
-    Conversation, ConversationMessage, CreateConversationRequest, CreateConversationResponse,
-    Mention, MessageBody, MessageContext, PostMessageResponse, StreamEvent,
+    AgentInfo, Conversation, ConversationMessage, CreateConversationRequest,
+    CreateConversationResponse, ListAgentsResponse, Mention, MessageBody, MessageContext,
+    PostMessageResponse, StreamEvent,
 };
 
 pub const DUST_CLI_USER_AGENT: &str = "Dust CLI";
@@ -99,6 +100,46 @@ impl DustClient {
             agent_id,
             user_context,
         })
+    }
+
+    #[cfg(test)]
+    pub fn agent_id(&self) -> &str {
+        &self.agent_id
+    }
+
+    pub fn set_agent(&mut self, agent_id: impl Into<String>) {
+        self.agent_id = agent_id.into();
+    }
+
+    pub fn list_agents_url(&self) -> String {
+        self.url(&format!(
+            "/api/v1/w/{}/assistant/agent_configurations?view=list",
+            self.workspace_id
+        ))
+    }
+
+    pub async fn list_agents(&self) -> Result<Vec<AgentInfo>> {
+        let token = token_refresh::get_valid_token().await?;
+        let response = self
+            .http
+            .get(self.list_agents_url())
+            .bearer_auth(token)
+            .send()
+            .await
+            .context("failed to list Dust agents")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Dust rejected agent list request: HTTP {status} — {body}");
+        }
+
+        let body: ListAgentsResponse = response
+            .json()
+            .await
+            .context("failed to decode Dust agent list response")?;
+
+        Ok(body.agent_configurations)
     }
 
     pub async fn create_conversation(
@@ -578,6 +619,49 @@ mod tests {
             find_agent_message(&conversation, "user1"),
             Some("agent1".to_string())
         );
+    }
+
+    #[test]
+    fn list_agents_url_is_correct() {
+        let client = DustClient::new(
+            "https://dust.tt".to_string(),
+            "ws_123".to_string(),
+            DEFAULT_AGENT_ID.to_string(),
+            UserContext::from_env(),
+        )
+        .expect("build client");
+
+        assert_eq!(
+            client.list_agents_url(),
+            "https://dust.tt/api/v1/w/ws_123/assistant/agent_configurations?view=list"
+        );
+    }
+
+    #[test]
+    fn agent_id_accessor() {
+        let client = DustClient::new(
+            "https://dust.tt".to_string(),
+            "ws_123".to_string(),
+            "my-agent".to_string(),
+            UserContext::from_env(),
+        )
+        .expect("build client");
+
+        assert_eq!(client.agent_id(), "my-agent");
+    }
+
+    #[test]
+    fn set_agent_updates_id() {
+        let mut client = DustClient::new(
+            "https://dust.tt".to_string(),
+            "ws_123".to_string(),
+            "old-agent".to_string(),
+            UserContext::from_env(),
+        )
+        .expect("build client");
+
+        client.set_agent("new-agent");
+        assert_eq!(client.agent_id(), "new-agent");
     }
 
     #[test]

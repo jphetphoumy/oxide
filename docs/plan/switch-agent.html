@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oxide — /switch Agent Feature Plan</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-dim: #1f6feb33;
+      --green: #3fb950;
+      --green-dim: #23863533;
+      --yellow: #d29922;
+      --yellow-dim: #d2992233;
+      --red: #f85149;
+      --orange: #db6d28;
+      --purple: #bc8cff;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    header .subtitle {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-top: 0.25rem;
+    }
+
+    .meta {
+      display: flex;
+      gap: 1.5rem;
+      margin-top: 0.75rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .meta span::before {
+      content: '■ ';
+      color: var(--accent);
+    }
+
+    h2 {
+      font-size: 1.1rem;
+      color: var(--green);
+      margin: 2rem 0 1rem;
+      border-left: 3px solid var(--green);
+      padding-left: 0.75rem;
+    }
+
+    h3 {
+      font-size: 0.95rem;
+      color: var(--yellow);
+      margin: 1.5rem 0 0.5rem;
+    }
+
+    p, li {
+      font-size: 0.85rem;
+      color: var(--text);
+    }
+
+    ul, ol {
+      padding-left: 1.5rem;
+      margin: 0.5rem 0;
+    }
+
+    li { margin: 0.3rem 0; }
+
+    code {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      color: var(--purple);
+    }
+
+    pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem;
+      overflow-x: auto;
+      margin: 0.75rem 0;
+      font-size: 0.8rem;
+      line-height: 1.5;
+    }
+
+    pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      color: var(--text);
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin: 1rem 0;
+    }
+
+    .card-accent {
+      border-left: 3px solid var(--accent);
+    }
+
+    .card-green {
+      border-left: 3px solid var(--green);
+    }
+
+    .card-yellow {
+      border-left: 3px solid var(--yellow);
+    }
+
+    .endpoint {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0.5rem 0;
+    }
+
+    .method {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.15rem 0.5rem;
+      border-radius: 3px;
+      text-transform: uppercase;
+    }
+
+    .get { background: var(--green-dim); color: var(--green); }
+
+    .endpoint-path {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.75rem 0;
+      font-size: 0.8rem;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .tag {
+      font-size: 0.7rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      font-weight: 600;
+    }
+
+    .tag-new { background: var(--green-dim); color: var(--green); }
+    .tag-mod { background: var(--yellow-dim); color: var(--yellow); }
+
+    .flow-diagram {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      margin: 1rem 0;
+      font-size: 0.8rem;
+    }
+
+    .flow-step {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .flow-arrow {
+      color: var(--text-muted);
+      margin-left: 1.5rem;
+    }
+
+    .flow-label {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 0.35rem 0.75rem;
+      border-radius: 4px;
+    }
+
+    .flow-label.user { border-color: var(--accent); color: var(--accent); }
+    .flow-label.system { border-color: var(--green); color: var(--green); }
+    .flow-label.api { border-color: var(--yellow); color: var(--yellow); }
+    .flow-label.ui { border-color: var(--purple); color: var(--purple); }
+
+    .step-number {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 50%;
+      background: var(--accent-dim);
+      color: var(--accent);
+      font-size: 0.75rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .file-tree {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.8;
+    }
+
+    .file-tree .new { color: var(--green); }
+    .file-tree .mod { color: var(--yellow); }
+
+    hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 2rem 0;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin: 1rem 0;
+    }
+
+    @media (max-width: 640px) {
+      .summary-grid { grid-template-columns: 1fr; }
+      body { padding: 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>/switch — Agent Switching Feature</h1>
+  <p class="subtitle">Implementation plan for in-session agent switching via slash command</p>
+  <div class="meta">
+    <span>oxide v0.4.5</span>
+    <span>2026-06-03</span>
+    <span>ratatui + Dust API</span>
+  </div>
+</header>
+
+<!-- ───────────────── OVERVIEW ───────────────── -->
+
+<h2>Overview</h2>
+
+<p>
+  Currently the Oxide TUI locks to a single agent for the entire session
+  (resolved at startup from <code>OXIDE_AGENT_ID</code> / config / default <code>"dust"</code>).
+  This plan adds a <code>/switch</code> slash command that lets users list
+  available agents and switch mid-conversation without restarting.
+</p>
+
+<div class="summary-grid">
+  <div class="card card-accent">
+    <h3>User experience</h3>
+    <ul>
+      <li>Type <code>/switch</code> &rarr; see a filterable list of agents</li>
+      <li>Arrow-key or type to filter, Enter to select</li>
+      <li>Status bar updates to reflect new agent</li>
+      <li>Next message is sent to the new agent (same conversation)</li>
+    </ul>
+  </div>
+  <div class="card card-accent">
+    <h3>Non-goals</h3>
+    <ul>
+      <li>Creating / editing agent configurations</li>
+      <li>Starting a new conversation on switch</li>
+      <li>Persisting agent choice to config file</li>
+      <li>Multi-agent mentions in a single message</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ───────────────── DUST API ───────────────── -->
+
+<h2>Dust API Surface</h2>
+
+<div class="card">
+  <p style="color: var(--text-muted); margin-bottom: 0.75rem;">Two endpoints are relevant:</p>
+
+  <div class="endpoint">
+    <span class="method get">GET</span>
+    <span class="endpoint-path">/api/v1/w/{wId}/assistant/agent_configurations</span>
+  </div>
+  <p>Lists all accessible agents. We use <code>view=list</code> (authenticated default)
+  to get the user's active agents.</p>
+  <p style="margin-top:0.5rem">Response shape:</p>
+  <pre><code>{
+  "agentConfigurations": [
+    {
+      "sId": "abc123",
+      "name": "dust",
+      "description": "General-purpose assistant",
+      "pictureUrl": "https://...",
+      "status": "active",
+      "scope": "workspace"
+    },
+    ...
+  ]
+}</code></pre>
+
+  <div class="endpoint" style="margin-top: 1rem;">
+    <span class="method get">GET</span>
+    <span class="endpoint-path">/api/v1/w/{wId}/assistant/agent_configurations/search?q={query}</span>
+  </div>
+  <p>Searches agents by name. Useful if the workspace has many agents &mdash;
+     we can do client-side filtering on the cached list instead, and fall back
+     to this endpoint only if needed.</p>
+</div>
+
+<p>Key fields we need from <code>AgentConfiguration</code>:</p>
+
+<table>
+  <tr><th>Field</th><th>Type</th><th>Usage</th></tr>
+  <tr><td><code>sId</code></td><td>string</td><td>Agent identifier &mdash; passed as <code>configurationId</code> in mentions and stored in <code>DustClient.agent_id</code></td></tr>
+  <tr><td><code>name</code></td><td>string</td><td>Display name shown in the picker and status bar</td></tr>
+  <tr><td><code>description</code></td><td>string</td><td>Shown as secondary text in the picker</td></tr>
+  <tr><td><code>pictureUrl</code></td><td>string</td><td>Not used (TUI has no images)</td></tr>
+  <tr><td><code>scope</code></td><td>string</td><td>Group agents: <code>workspace</code> vs <code>published</code> vs <code>global</code></td></tr>
+</table>
+
+<!-- ───────────────── ARCHITECTURE ───────────────── -->
+
+<h2>Architecture</h2>
+
+<h3>App mode state machine</h3>
+
+<p>The app gains a <strong>mode</strong> enum. The TUI main loop dispatches events
+  differently based on the current mode:</p>
+
+<pre><code>enum AppMode {
+    Chat,                     // current behavior
+    AgentPicker(PickerState), // /switch overlay
+}
+
+struct PickerState {
+    agents: Vec&lt;AgentInfo&gt;,   // fetched from API
+    filter: String,            // live search text
+    selected: usize,           // cursor index in filtered list
+    loading: bool,             // true while API call in-flight
+}
+
+struct AgentInfo {
+    s_id: String,
+    name: String,
+    description: String,
+    scope: String,
+}</code></pre>
+
+<h3>User flow</h3>
+
+<div class="flow-diagram">
+  <div class="flow-step">
+    <span class="step-number">1</span>
+    <span class="flow-label user">User types <code>/switch</code> + Enter</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">2</span>
+    <span class="flow-label system">Handler detects slash command, switches to <code>AgentPicker</code> mode</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">3</span>
+    <span class="flow-label api">Async task calls <code>GET /agent_configurations?view=list</code></span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">4</span>
+    <span class="flow-label ui">Overlay renders: search box + scrollable agent list</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">5</span>
+    <span class="flow-label user">User filters / arrows / selects with Enter (or Esc to cancel)</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">6</span>
+    <span class="flow-label system">App updates <code>agent_id</code> + <code>agent_name</code>, returns to Chat mode</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">7</span>
+    <span class="flow-label ui">Status bar reflects new agent; next message mentions new agent</span>
+  </div>
+</div>
+
+<!-- ───────────────── FILE CHANGES ───────────────── -->
+
+<h2>File Changes</h2>
+
+<div class="file-tree">
+<pre>
+src/
+├── <span class="mod">app.rs</span>           ← add AppMode, agent switching methods
+├── <span class="mod">handler.rs</span>       ← slash command detection, picker key handling
+├── <span class="mod">main.rs</span>          ← new channel for agent list, mode-aware dispatch
+├── <span class="mod">dust/client.rs</span>   ← add list_agents() method, set_agent()
+├── <span class="mod">dust/types.rs</span>    ← add AgentConfiguration response types
+├── <span class="new">ui/picker.rs</span>     ← new: agent picker overlay widget
+├── <span class="mod">ui/mod.rs</span>        ← export picker module
+└── <span class="mod">ui/layout.rs</span>     ← render picker overlay when in AgentPicker mode
+</pre>
+</div>
+
+<table>
+  <tr><th>File</th><th>Change</th><th>Details</th></tr>
+  <tr>
+    <td><code>dust/types.rs</code></td>
+    <td><span class="tag tag-mod">mod</span></td>
+    <td>
+      Add <code>AgentConfigurationResponse</code> and <code>AgentInfo</code> structs for deserializing the list endpoint response.
+    </td>
+  </tr>
+  <tr>
+    <td><code>dust/client.rs</code></td>
+    <td><span class="tag tag-mod">mod</span></td>
+    <td>
+      Add <code>list_agents(&self) -> Result&lt;Vec&lt;AgentInfo&gt;&gt;</code> calling
+      <code>GET /api/v1/w/{wId}/assistant/agent_configurations?view=list</code>.
+      Add <code>set_agent(&mut self, id: &str, name: &str)</code> to update the client's active agent.
+    </td>
+  </tr>
+  <tr>
+    <td><code>app.rs</code></td>
+    <td><span class="tag tag-mod">mod</span></td>
+    <td>
+      Add <code>AppMode</code> enum with <code>Chat</code> and <code>AgentPicker(PickerState)</code>.
+      Add <code>switch_agent()</code> to update <code>agent_name</code> + push a system message confirming the switch.
+      The conversation is <strong>preserved</strong> &mdash; <code>conversation_id</code> stays the same.
+    </td>
+  </tr>
+  <tr>
+    <td><code>handler.rs</code></td>
+    <td><span class="tag tag-mod">mod</span></td>
+    <td>
+      On <code>Action::Submit</code>, check if input starts with <code>/switch</code>.
+      If so, transition to <code>AgentPicker</code> mode and fire the list-agents request.
+      Add a separate <code>handle_picker_key()</code> function for picker-mode keybindings
+      (arrow up/down, Enter, Esc, typing to filter).
+    </td>
+  </tr>
+  <tr>
+    <td><code>ui/picker.rs</code></td>
+    <td><span class="tag tag-new">new</span></td>
+    <td>
+      Centered overlay widget (50% width, up to 60% height).
+      Title: "Switch Agent". Search input at top, scrollable list below.
+      Each row: agent name (bold) + description (dimmed). Selected row highlighted.
+      Loading spinner while API call pending. "No agents found" empty state.
+    </td>
+  </tr>
+  <tr>
+    <td><code>main.rs</code></td>
+    <td><span class="tag tag-mod">mod</span></td>
+    <td>
+      New <code>mpsc</code> channel for <code>AgentListEvent</code>.
+      Mode-aware event dispatch: in <code>Chat</code> mode, existing behavior;
+      in <code>AgentPicker</code> mode, delegate to picker handler.
+      On agent selected, call <code>client.set_agent()</code> + <code>app.switch_agent()</code>.
+    </td>
+  </tr>
+  <tr>
+    <td><code>ui/layout.rs</code></td>
+    <td><span class="tag tag-mod">mod</span></td>
+    <td>
+      After rendering the normal layout, if <code>app.mode() == AgentPicker</code>,
+      render the picker overlay on top (using <code>ratatui::widgets::Clear</code> + centered rect).
+    </td>
+  </tr>
+</table>
+
+<!-- ───────────────── IMPLEMENTATION STEPS ───────────────── -->
+
+<h2>Implementation Steps</h2>
+
+<div class="card card-green">
+  <h3>Step 1 &mdash; API types + client method</h3>
+  <p>Add the Dust API types and <code>list_agents()</code> to the client. This is pure backend work, fully testable in isolation.</p>
+  <ul>
+    <li>Add <code>AgentInfo</code> and <code>ListAgentsResponse</code> to <code>dust/types.rs</code></li>
+    <li>Add <code>DustClient::list_agents()</code> in <code>dust/client.rs</code></li>
+    <li>Add <code>DustClient::set_agent(&mut self, id, name)</code></li>
+    <li>Unit tests for deserialization</li>
+  </ul>
+</div>
+
+<div class="card card-green">
+  <h3>Step 2 &mdash; App mode + state</h3>
+  <p>Introduce <code>AppMode</code>, <code>PickerState</code>, and agent switching on the <code>App</code> struct.</p>
+  <ul>
+    <li>Add <code>AppMode</code> enum, <code>PickerState</code> struct to <code>app.rs</code></li>
+    <li>Add mode field + accessors: <code>mode()</code>, <code>enter_picker()</code>, <code>exit_picker()</code></li>
+    <li>Add <code>switch_agent(id, name)</code> &mdash; updates <code>agent_name</code>, pushes system message "Switched to {name}"</li>
+    <li>Add picker state mutation: <code>set_agents()</code>, <code>update_filter()</code>, <code>move_selection()</code></li>
+    <li>Unit tests for all state transitions</li>
+  </ul>
+</div>
+
+<div class="card card-green">
+  <h3>Step 3 &mdash; Slash command detection + picker keybindings</h3>
+  <p>Wire up the handler to intercept <code>/switch</code> and handle picker input.</p>
+  <ul>
+    <li>In <code>apply_action()</code>, on <code>Submit</code>: if content is <code>/switch</code>, enter picker mode instead of sending to Dust</li>
+    <li>New <code>PickerAction</code> enum: <code>MoveUp</code>, <code>MoveDown</code>, <code>Select</code>, <code>Cancel</code>, <code>Type(char)</code>, <code>Backspace</code></li>
+    <li>New <code>handle_picker_key()</code> function mapping keys to <code>PickerAction</code></li>
+    <li>New <code>apply_picker_action()</code> function applying actions to <code>PickerState</code></li>
+    <li>Return a new <code>ActionOutcome</code> variant for agent selection</li>
+    <li>Unit tests for slash command detection + picker key mapping</li>
+  </ul>
+</div>
+
+<div class="card card-green">
+  <h3>Step 4 &mdash; Picker UI widget</h3>
+  <p>Build the overlay widget in a new <code>ui/picker.rs</code> module.</p>
+  <ul>
+    <li>Centered popup: <code>Clear</code> + <code>Block</code> with border + title "Switch Agent"</li>
+    <li>Search input line at top with cursor</li>
+    <li>Scrollable <code>List</code> widget below with filtered agents</li>
+    <li>Each item: <code>name</code> (white/bold) &mdash; <code>description</code> (dark gray, truncated)</li>
+    <li>Highlight style: accent background on selected row</li>
+    <li>Loading state: "Fetching agents..." centered</li>
+    <li>Empty state: "No agents match" centered</li>
+    <li>Footer hint: "↑↓ navigate  Enter select  Esc cancel"</li>
+  </ul>
+</div>
+
+<div class="card card-green">
+  <h3>Step 5 &mdash; Main loop integration</h3>
+  <p>Wire everything together in <code>main.rs</code>.</p>
+  <ul>
+    <li>New <code>mpsc::unbounded_channel&lt;Vec&lt;AgentInfo&gt;&gt;</code> for async agent list results</li>
+    <li>On <code>/switch</code> submit: spawn <code>client.list_agents()</code> task, send result through channel</li>
+    <li>In <code>tokio::select!</code>: add branch for agent list channel</li>
+    <li>On agent list received: update <code>PickerState</code> with agents, set <code>loading = false</code></li>
+    <li>On agent selected: call <code>app.switch_agent()</code>, update <code>DustClient</code> agent, return to Chat</li>
+    <li>Draw: conditionally render picker overlay based on <code>app.mode()</code></li>
+  </ul>
+</div>
+
+<div class="card card-green">
+  <h3>Step 6 &mdash; Integration testing</h3>
+  <p>TUI integration tests using tmux.</p>
+  <ul>
+    <li>Test: type <code>/switch</code> + Enter &rarr; picker overlay appears</li>
+    <li>Test: Esc closes picker, returns to chat</li>
+    <li>Test: status bar shows updated agent name after switch</li>
+  </ul>
+</div>
+
+<!-- ───────────────── KEY DECISIONS ───────────────── -->
+
+<h2>Key Design Decisions</h2>
+
+<div class="card card-yellow">
+  <h3>Same conversation, different agent</h3>
+  <p>
+    Switching agents does <strong>not</strong> start a new conversation.
+    The Dust API supports mentioning different agents within the same conversation
+    &mdash; the <code>mentions[].configurationId</code> field in each message body
+    controls which agent responds. This means:
+  </p>
+  <ul>
+    <li>Context from previous messages is preserved</li>
+    <li>The user can switch freely without losing history</li>
+    <li>Each message can target a different agent</li>
+  </ul>
+</div>
+
+<div class="card card-yellow">
+  <h3>Client-side filtering</h3>
+  <p>
+    We fetch the full agent list once when the picker opens and filter client-side.
+    The search API endpoint (<code>?q=</code>) exists as a fallback but most workspaces
+    have &lt;100 agents, making a single cached fetch more responsive than per-keystroke
+    API calls.
+  </p>
+</div>
+
+<div class="card card-yellow">
+  <h3>DustClient mutability</h3>
+  <p>
+    Currently <code>DustClient</code> is cloned per message-send task. To support switching,
+    we wrap <code>agent_id</code> in the client with a setter, or &mdash; simpler &mdash;
+    we pass the <code>agent_id</code> directly to <code>send_message_flow()</code> instead of
+    reading it from <code>self</code>. This avoids shared mutable state entirely.
+    The client already accepts <code>agent_id</code> as a parameter in
+    <code>create_conversation()</code> and <code>post_message()</code>.
+  </p>
+</div>
+
+<!-- ───────────────── FUTURE ───────────────── -->
+
+<hr>
+
+<h2>Future Extensions</h2>
+<ul>
+  <li><code>/switch &lt;name&gt;</code> &mdash; direct switch without picker if agent name is unambiguous</li>
+  <li>Cache agent list for the session, refresh on demand</li>
+  <li>Show current agent as highlighted in the picker</li>
+  <li>Agent favorites / recently used sorting</li>
+  <li>Generic slash command framework for <code>/help</code>, <code>/clear</code>, <code>/new</code>, etc.</li>
+</ul>
+
+</body>
+</html>

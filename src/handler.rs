@@ -41,9 +41,33 @@ pub fn handle_key_event(key: KeyEvent) -> Action {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum PickerAction {
+    MoveUp,
+    MoveDown,
+    Select,
+    Cancel,
+    Type(char),
+    Backspace,
+    None,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ActionOutcome {
     pub submit: Option<String>,
+    pub slash_command: Option<SlashCommand>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SlashCommand {
+    Switch,
+}
+
+fn parse_slash_command(content: &str) -> Option<SlashCommand> {
+    match content.trim() {
+        "/switch" => Some(SlashCommand::Switch),
+        _ => None,
+    }
 }
 
 pub fn apply_action(app: &mut App, input: &mut InputBuffer, action: Action) -> ActionOutcome {
@@ -53,7 +77,9 @@ pub fn apply_action(app: &mut App, input: &mut InputBuffer, action: Action) -> A
         Action::Quit => app.quit(),
         Action::Submit => {
             let content = input.take();
-            if app.send_message(&content) {
+            if let Some(command) = parse_slash_command(&content) {
+                outcome.slash_command = Some(command);
+            } else if app.send_message(&content) {
                 outcome.submit = Some(content);
             }
         }
@@ -71,6 +97,19 @@ pub fn apply_action(app: &mut App, input: &mut InputBuffer, action: Action) -> A
     }
 
     outcome
+}
+
+#[allow(clippy::missing_const_for_fn)]
+pub fn handle_picker_key(key: KeyEvent) -> PickerAction {
+    match (key.code, key.modifiers) {
+        (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => PickerAction::Cancel,
+        (KeyCode::Enter, _) => PickerAction::Select,
+        (KeyCode::Up, _) => PickerAction::MoveUp,
+        (KeyCode::Down, _) => PickerAction::MoveDown,
+        (KeyCode::Backspace, _) => PickerAction::Backspace,
+        (KeyCode::Char(c), _) => PickerAction::Type(c),
+        _ => PickerAction::None,
+    }
 }
 
 #[cfg(test)]
@@ -221,6 +260,92 @@ mod tests {
         let outcome = apply_action(&mut app, &mut input, Action::ScrollUp(5));
         assert_eq!(outcome, ActionOutcome::default());
         assert_eq!(app.scroll_offset(), 5);
+    }
+
+    #[test]
+    fn submit_switch_command_produces_slash_command() {
+        let mut app = App::new("a", "/workspace", None);
+        let mut input = InputBuffer::new();
+        for c in "/switch".chars() {
+            input.insert_char(c);
+        }
+
+        let outcome = apply_action(&mut app, &mut input, Action::Submit);
+
+        assert_eq!(outcome.slash_command, Some(SlashCommand::Switch));
+        assert!(outcome.submit.is_none());
+        assert!(app.messages().is_empty()); // not sent as a message
+    }
+
+    #[test]
+    fn submit_switch_with_whitespace_still_detected() {
+        let mut app = App::new("a", "/workspace", None);
+        let mut input = InputBuffer::new();
+        for c in "  /switch  ".chars() {
+            input.insert_char(c);
+        }
+
+        let outcome = apply_action(&mut app, &mut input, Action::Submit);
+        assert_eq!(outcome.slash_command, Some(SlashCommand::Switch));
+    }
+
+    #[test]
+    fn submit_normal_message_has_no_slash_command() {
+        let mut app = App::new("a", "/workspace", None);
+        let mut input = InputBuffer::new();
+        for c in "hello".chars() {
+            input.insert_char(c);
+        }
+
+        let outcome = apply_action(&mut app, &mut input, Action::Submit);
+        assert!(outcome.slash_command.is_none());
+        assert!(outcome.submit.is_some());
+    }
+
+    #[test]
+    fn picker_esc_cancels() {
+        let action = handle_picker_key(key(KeyCode::Esc));
+        assert!(matches!(action, PickerAction::Cancel));
+    }
+
+    #[test]
+    fn picker_ctrl_c_cancels() {
+        let action = handle_picker_key(key_with_mod(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert!(matches!(action, PickerAction::Cancel));
+    }
+
+    #[test]
+    fn picker_enter_selects() {
+        let action = handle_picker_key(key(KeyCode::Enter));
+        assert!(matches!(action, PickerAction::Select));
+    }
+
+    #[test]
+    fn picker_arrows_move() {
+        assert!(matches!(
+            handle_picker_key(key(KeyCode::Up)),
+            PickerAction::MoveUp
+        ));
+        assert!(matches!(
+            handle_picker_key(key(KeyCode::Down)),
+            PickerAction::MoveDown
+        ));
+    }
+
+    #[test]
+    fn picker_char_types() {
+        assert!(matches!(
+            handle_picker_key(key(KeyCode::Char('a'))),
+            PickerAction::Type('a')
+        ));
+    }
+
+    #[test]
+    fn picker_backspace_deletes() {
+        assert!(matches!(
+            handle_picker_key(key(KeyCode::Backspace)),
+            PickerAction::Backspace
+        ));
     }
 
     #[test]
