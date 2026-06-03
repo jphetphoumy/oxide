@@ -1,0 +1,35 @@
+{
+  "skill_name": "dust-api",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "What endpoint does the Dust API use to list agents?",
+      "expected_output": "The skill should reference the swagger spec and identify the GET /api/v1/w/{wId}/assistant/agent_configurations endpoint",
+      "assertions": [
+        "References the swagger.json file from the dust repo",
+        "Identifies the correct endpoint path",
+        "Mentions the view=list query parameter"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Check if oxide's conversation creation matches the official CLI",
+      "expected_output": "The skill should compare oxide's create_conversation in client.rs against the official CLI's Chat.tsx and dustClient.ts",
+      "assertions": [
+        "Reads oxide's src/dust/client.rs",
+        "Reads the official CLI's conversation creation code",
+        "Compares headers, body format, and auth handling"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "What HTTP headers does the Dust CLI send?",
+      "expected_output": "The skill should find User-Agent: Dust CLI and X-Dust-CLI-Version from dustClient.ts",
+      "assertions": [
+        "References dustClient.ts in the dust repo",
+        "Identifies User-Agent and X-Dust-CLI-Version headers",
+        "Shows the actual header values"
+      ]
+    }
+  ]
+}
