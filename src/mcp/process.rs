@@ -21,9 +21,9 @@ impl Drop for McpProcess {
 }
 
 impl McpProcess {
-    pub async fn spawn(config: &McpServerConfig) -> Result<Self> {
+    pub fn spawn(config: &McpServerConfig) -> Result<Self> {
         let Some(ref command) = config.command else {
-            anyhow::bail!("MCP server '{}' has no command", config.name);
+            anyhow::bail!("MCP server '{}' has no command", &config.name);
         };
 
         let mut cmd = Command::new(command);
@@ -80,7 +80,7 @@ impl McpProcess {
         let response: serde_json::Value = serde_json::from_str(&response_line)?;
 
         if let Some(error) = response.get("error") {
-            anyhow::bail!("MCP error: {}", error);
+            anyhow::bail!("MCP error: {error}");
         }
 
         Ok(response

@@ -23,7 +23,7 @@ impl BashTool {
             Ok(Ok(output)) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                let content = format!("{}{}", stdout, stderr).trim().to_string();
+                let content = format!("{stdout}{stderr}").trim().to_string();
                 let is_error = !output.status.success();
 
                 ToolResult {

@@ -11,7 +11,7 @@ pub struct McpClient {
 
 impl McpClient {
     pub async fn connect(config: &McpServerConfig) -> Result<Self> {
-        let mut process = McpProcess::spawn(config).await?;
+        let mut process = McpProcess::spawn(config)?;
         process
             .call(
                 "initialize",
