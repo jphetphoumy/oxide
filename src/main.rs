@@ -383,6 +383,10 @@ async fn run_tui() -> io::Result<()> {
                                 .collect();
                             app.restore_conversation(conversation_id, role_messages, title.as_deref());
                         }
+                        DustEvent::ToolUse(tool_call) => {
+                            tracing::debug!(tool = %tool_call.name, "entering tool approval mode");
+                            app.enter_tool_approval(tool_call);
+                        }
                         _ => {}
                     }
                 } else {

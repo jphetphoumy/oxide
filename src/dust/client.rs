@@ -51,6 +51,7 @@ pub enum DustEvent {
         title: Option<String>,
         messages: Vec<(String, String)>, // (role, content) where role is "user" | "agent" | "system"
     },
+    ToolUse(crate::mcp::ToolCall),
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -406,9 +407,17 @@ impl DustClient {
                     let _ = tx.send(DustEvent::Complete(None, Some(conversation_id.clone())));
                     return Ok(());
                 }
-                StreamEvent::GenerationTokens { .. }
-                | StreamEvent::AgentActionSuccess { .. }
-                | StreamEvent::Unknown => {}
+                StreamEvent::AgentActionSuccess { action } => {
+                    if let Some(tool_call) = StreamEvent::extract_tool_use_from_action(&action) {
+                        debug!(
+                            tool_name = %tool_call.name,
+                            tool_id = %tool_call.id,
+                            "received tool_use action from agent"
+                        );
+                        let _ = tx.send(DustEvent::ToolUse(tool_call));
+                    }
+                }
+                StreamEvent::GenerationTokens { .. } | StreamEvent::Unknown => {}
             }
         }
 

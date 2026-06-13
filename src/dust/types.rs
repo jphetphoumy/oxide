@@ -147,13 +147,17 @@ impl StreamEvent {
     pub fn extract_tool_use(&self) -> Option<ToolCall> {
         match self {
             StreamEvent::AgentActionSuccess { action } => {
-                if let Some("tool_use") = action.get("type").and_then(|t| t.as_str()) {
-                    serde_json::from_value(action.clone()).ok()
-                } else {
-                    None
-                }
+                Self::extract_tool_use_from_action(action)
             }
             _ => None,
+        }
+    }
+
+    pub fn extract_tool_use_from_action(action: &serde_json::Value) -> Option<ToolCall> {
+        if let Some("tool_use") = action.get("type").and_then(|t| t.as_str()) {
+            serde_json::from_value(action.clone()).ok()
+        } else {
+            None
         }
     }
 }
