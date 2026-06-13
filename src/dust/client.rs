@@ -41,8 +41,8 @@ pub struct UserContext {
 
 #[derive(Debug, Clone)]
 pub enum DustEvent {
-    Token(String),
-    Complete(Option<String>),
+    Token(String, Option<String>),            // text, conversation_id
+    Complete(Option<String>, Option<String>), // content, conversation_id
     Error(String),
     ConversationCreated(String),
 }
@@ -271,14 +271,17 @@ impl DustClient {
                         token_len = text.len(),
                         "received Dust token chunk"
                     );
-                    let _ = tx.send(DustEvent::Token(text));
+                    let _ = tx.send(DustEvent::Token(text, Some(conversation_id.clone())));
                 }
                 StreamEvent::AgentMessageSuccess { message } => {
                     debug!(
                         conversation_id = %conversation_id,
                         "Dust agent message completed"
                     );
-                    let _ = tx.send(DustEvent::Complete(message.content));
+                    let _ = tx.send(DustEvent::Complete(
+                        message.content,
+                        Some(conversation_id.clone()),
+                    ));
                     return Ok(());
                 }
                 StreamEvent::AgentError { error } => {
@@ -312,7 +315,7 @@ impl DustClient {
                         conversation_id = %conversation_id,
                         "Dust agent generation cancelled"
                     );
-                    let _ = tx.send(DustEvent::Complete(None));
+                    let _ = tx.send(DustEvent::Complete(None, Some(conversation_id.clone())));
                     return Ok(());
                 }
                 StreamEvent::GenerationTokens { .. }
@@ -325,7 +328,7 @@ impl DustClient {
             conversation_id = %conversation_id,
             "Dust stream ended without a terminal event"
         );
-        let _ = tx.send(DustEvent::Complete(None));
+        let _ = tx.send(DustEvent::Complete(None, Some(conversation_id.clone())));
         Ok(())
     }
 

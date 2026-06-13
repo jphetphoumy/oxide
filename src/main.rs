@@ -196,12 +196,17 @@ async fn run_tui() -> io::Result<()> {
             message = dust_rx.recv() => {
                 if let Some(message) = message {
                     match message {
-                        DustEvent::Token(token) => app.append_agent_token(&token),
-                        DustEvent::Complete(content) => app.complete_stream(content.as_deref()),
+                        DustEvent::Token(token, conv_id) if conv_id == app.conversation_id().map(ToString::to_string) => {
+                            app.append_agent_token(&token);
+                        }
+                        DustEvent::Complete(content, conv_id) if conv_id == app.conversation_id().map(ToString::to_string) => {
+                            app.complete_stream(content.as_deref());
+                        }
                         DustEvent::Error(error) => app.push_system_message(&error),
                         DustEvent::ConversationCreated(conversation_id) => {
                             app.set_conversation_id(conversation_id);
                         }
+                        _ => {}
                     }
                 } else {
                     break;
@@ -216,12 +221,21 @@ async fn run_tui() -> io::Result<()> {
 
         while let Ok(message) = dust_rx.try_recv() {
             match message {
-                DustEvent::Token(token) => app.append_agent_token(&token),
-                DustEvent::Complete(content) => app.complete_stream(content.as_deref()),
+                DustEvent::Token(token, conv_id)
+                    if conv_id == app.conversation_id().map(ToString::to_string) =>
+                {
+                    app.append_agent_token(&token);
+                }
+                DustEvent::Complete(content, conv_id)
+                    if conv_id == app.conversation_id().map(ToString::to_string) =>
+                {
+                    app.complete_stream(content.as_deref());
+                }
                 DustEvent::Error(error) => app.push_system_message(&error),
                 DustEvent::ConversationCreated(conversation_id) => {
                     app.set_conversation_id(conversation_id);
                 }
+                _ => {}
             }
         }
 

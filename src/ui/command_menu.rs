@@ -158,29 +158,30 @@ mod tests {
     #[test]
     fn first_row_is_highlighted() {
         let buf = render_menu("/", 40, 20);
-        // Find the first item row by looking for a cell with DarkGray background
+        // Find the first item row (first row with DarkGray background)
         let mut found_highlight = false;
         for y in 0..buf.area.height {
-            for x in 1..buf.area.width {
+            let mut row_has_highlight = false;
+            for x in 0..buf.area.width {
                 if let Some(cell) = buf.cell((x, y)) {
-                    if cell.bg == Color::DarkGray
-                        && cell
-                            .symbol()
-                            .chars()
-                            .any(|c| c == '/' || c.is_alphanumeric())
-                    {
-                        found_highlight = true;
+                    if cell.bg == Color::DarkGray {
+                        row_has_highlight = true;
                         break;
                     }
                 }
             }
-            if found_highlight {
+            if row_has_highlight {
+                // Verify the first item row contains a command (/ or alphanumeric)
+                let row = row_text(&buf, y);
+                if row.contains('/') || row.chars().any(|c| c.is_alphanumeric()) {
+                    found_highlight = true;
+                }
                 break;
             }
         }
         assert!(
             found_highlight,
-            "Expected at least one row with DarkGray background highlight"
+            "Expected first item row to have DarkGray background highlight"
         );
     }
 
