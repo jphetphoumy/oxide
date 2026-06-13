@@ -24,6 +24,8 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tokio::sync::mpsc;
 
+use std::sync::Arc;
+
 use crate::app::{App, AppMode};
 use crate::auth::device_flow::build_http_client;
 use crate::auth::workspace_selection;
@@ -37,6 +39,7 @@ use crate::handler::{
     handle_picker_key,
 };
 use crate::input_buffer::InputBuffer;
+use crate::mcp::McpManager;
 use crate::ui::{
     input_height, render_command_menu, render_input, render_layout, render_messages, render_picker,
     render_resume_picker,
@@ -96,6 +99,11 @@ async fn run_tui() -> io::Result<()> {
 
     let mut terminal = setup_terminal()?;
     let config = Config::load().map_err(|error| io::Error::other(error.to_string()))?;
+    let mcp_manager = Arc::new(tokio::sync::Mutex::new(
+        McpManager::init(config.mcp())
+            .await
+            .map_err(|error| io::Error::other(error.to_string()))?,
+    ));
     let agent_name = resolve_agent_id(config.agent_id(), std::env::var("OXIDE_AGENT_ID").ok());
     let cwd = std::env::current_dir()?;
     let home_dir = dirs::home_dir();
@@ -232,19 +240,58 @@ async fn run_tui() -> io::Result<()> {
                             AppMode::ToolApproval(_) => {
                                 match key.code {
                                     crossterm::event::KeyCode::Char('y') | crossterm::event::KeyCode::Enter => {
-                                        if let Some(tool_call) = app.current_tool_call() {
+                                        if let Some(tool_call) = app.current_tool_call().cloned() {
                                             let tool_name = tool_call.name.clone();
                                             let input_json = tool_call.input.clone();
                                             let tool_use_id = tool_call.id.clone();
                                             app.exit_tool_approval();
 
-                                            // Tool execution will be handled after we can initialize McpManager
-                                            tracing::debug!(tool_name = %tool_name, "tool approved by user");
+                                            let conversation_id = app.conversation_id().map(|s| s.to_string());
+                                            let dust_client = client.clone();
+                                            let mcp = mcp_manager.clone();
+                                            tokio::spawn(async move {
+                                                match mcp.lock().await.call_tool(&tool_name, input_json).await {
+                                                    Ok(mut result) => {
+                                                        result.tool_use_id = tool_use_id;
+                                                        if let Some(ref conv_id) = conversation_id {
+                                                            if let Some(ref c) = dust_client {
+                                                                if let Err(e) = c.submit_tool_result(conv_id, &result).await {
+                                                                    tracing::error!(error = %e, "failed to submit tool result");
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        tracing::error!(tool = %tool_name, error = %e, "tool execution failed");
+                                                    }
+                                                }
+                                            });
                                         }
                                     }
                                     crossterm::event::KeyCode::Char('n') | crossterm::event::KeyCode::Esc => {
-                                        app.exit_tool_approval();
-                                        tracing::debug!("tool denied by user");
+                                        if let Some(tool_call) = app.current_tool_call().cloned() {
+                                            let tool_use_id = tool_call.id.clone();
+                                            let conversation_id = app.conversation_id().map(|s| s.to_string());
+                                            let dust_client = client.clone();
+
+                                            let denial_result = crate::mcp::ToolResult {
+                                                tool_use_id,
+                                                content: "denied by user".to_string(),
+                                                is_error: true,
+                                            };
+
+                                            app.exit_tool_approval();
+
+                                            tokio::spawn(async move {
+                                                if let Some(ref conv_id) = conversation_id {
+                                                    if let Some(ref c) = dust_client {
+                                                        if let Err(e) = c.submit_tool_result(conv_id, &denial_result).await {
+                                                            tracing::error!(error = %e, "failed to submit denial result");
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                        }
                                     }
                                     _ => {}
                                 }

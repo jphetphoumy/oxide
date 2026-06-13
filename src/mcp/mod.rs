@@ -8,7 +8,7 @@ use tracing::warn;
 
 pub use bash::BashTool;
 pub use client::McpClient;
-pub use types::{McpTool, ToolCall, ToolResult, ToolApproval};
+pub use types::{McpTool, ToolCall, ToolResult};
 
 use crate::config::McpConfig;
 

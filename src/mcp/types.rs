@@ -22,9 +22,3 @@ pub struct ToolResult {
     pub content: String,
     pub is_error: bool,
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToolApproval {
-    Approved,
-    Denied,
-}

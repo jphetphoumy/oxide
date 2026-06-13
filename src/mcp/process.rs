@@ -1,4 +1,3 @@
-use std::io::BufReader;
 use std::process::Stdio;
 
 use anyhow::{Context, Result};
@@ -13,6 +12,12 @@ pub struct McpProcess {
     writer: tokio::io::BufWriter<tokio::process::ChildStdin>,
     reader: tokio::io::BufReader<tokio::process::ChildStdout>,
     request_id: u64,
+}
+
+impl Drop for McpProcess {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+    }
 }
 
 impl McpProcess {
