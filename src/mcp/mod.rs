@@ -1,6 +1,8 @@
 pub mod bash;
 pub mod client;
+pub mod jsonrpc;
 pub mod process;
+pub mod server;
 pub mod types;
 
 use anyhow::{Context, Result};
@@ -8,6 +10,7 @@ use tracing::warn;
 
 pub use bash::BashTool;
 pub use client::McpClient;
+pub use server::McpJsonRpcServer;
 pub use types::{McpTool, ToolCall, ToolResult};
 
 use crate::config::McpConfig;

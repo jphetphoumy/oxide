@@ -74,6 +74,7 @@ async fn main() -> Result<()> {
         Some(Command::Login) => auth::device_flow::login().await?,
         Some(Command::Logout) => auth::logout()?,
         Some(Command::Status) => auth::status().await?,
+        Some(Command::McpServer) => run_mcp_server().await?,
         None => run_tui().await?,
     }
 
@@ -523,5 +524,23 @@ async fn run_tui() -> io::Result<()> {
     }
 
     restore_terminal(&mut terminal);
+    Ok(())
+}
+
+async fn run_mcp_server() -> Result<()> {
+    use crate::mcp::McpJsonRpcServer;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    let config = Config::load().map_err(|error| io::Error::other(error.to_string()))?;
+    let mcp_manager = Arc::new(Mutex::new(
+        McpManager::init(config.mcp())
+            .await
+            .map_err(|error| io::Error::other(error.to_string()))?,
+    ));
+
+    let server = McpJsonRpcServer::new(mcp_manager);
+    server.run().await?;
+
     Ok(())
 }
