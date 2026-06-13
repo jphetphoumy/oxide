@@ -375,8 +375,12 @@ impl DustClient {
         debug!(
             existing_conversation = conversation_id.as_deref().unwrap_or("<new>"),
             content_len = content.len(),
+            tools_count = tools.len(),
             "starting Dust message flow"
         );
+        for tool in &tools {
+            debug!(tool_name = %tool.name, "tool available in message flow");
+        }
         let (user_message_id, conversation_id) = if let Some(existing) = conversation_id {
             let user_message_id = self
                 .post_message_with_tools(&existing, &content, &self.agent_id, tools.clone())
