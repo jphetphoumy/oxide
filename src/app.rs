@@ -57,6 +57,7 @@ pub struct App {
     user_message_id: Option<String>,
     is_streaming: bool,
     mode: AppMode,
+    auto_approve_tools: bool,
 }
 
 impl App {
@@ -73,7 +74,16 @@ impl App {
             user_message_id: None,
             is_streaming: false,
             mode: AppMode::Chat,
+            auto_approve_tools: false,
         }
+    }
+
+    pub fn set_auto_approve(&mut self, auto_approve: bool) {
+        self.auto_approve_tools = auto_approve;
+    }
+
+    pub const fn auto_approve_tools(&self) -> bool {
+        self.auto_approve_tools
     }
 
     pub fn messages(&self) -> &[Message] {

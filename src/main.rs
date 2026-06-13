@@ -108,6 +108,7 @@ async fn run_tui() -> io::Result<()> {
     let cwd = std::env::current_dir()?;
     let home_dir = dirs::home_dir();
     let mut app = App::new(&agent_name, cwd, home_dir);
+    app.set_auto_approve(config.mcp().auto_approve);
     let mut events = EventReader::new(Duration::from_millis(250));
     let mut input = InputBuffer::new();
     let (dust_tx, mut dust_rx) = mpsc::unbounded_channel::<DustEvent>();
@@ -393,8 +394,41 @@ async fn run_tui() -> io::Result<()> {
                             app.restore_conversation(conversation_id, role_messages, title.as_deref());
                         }
                         DustEvent::ToolUse(tool_call) => {
-                            tracing::debug!(tool = %tool_call.name, "entering tool approval mode");
-                            app.enter_tool_approval(tool_call);
+                            if app.auto_approve_tools() {
+                                tracing::debug!(tool = %tool_call.name, "auto-approving tool (auto_approve=true)");
+                                let tool_name = tool_call.name.clone();
+                                let input_json = tool_call.input.clone();
+                                let tool_use_id = tool_call.id.clone();
+                                let conversation_id = app.conversation_id().map(ToString::to_string);
+                                let user_message_id = app.user_message_id().map(ToString::to_string);
+                                let dust_client = client.clone();
+                                let mcp = mcp_manager.clone();
+                                let dust_tx = dust_tx.clone();
+                                tokio::spawn(async move {
+                                    match mcp.lock().await.call_tool(&tool_name, input_json).await {
+                                        Ok(mut result) => {
+                                            result.tool_use_id = tool_use_id;
+                                            if let (Some(conv_id), Some(c)) =
+                                                (conversation_id.as_ref(), dust_client.as_ref())
+                                            {
+                                                if let Err(e) = c.submit_tool_result(conv_id, &result).await {
+                                                    tracing::error!(error = %e, "failed to submit tool result");
+                                                } else if let (Some(user_msg_id), Some(conv_id_str)) = (&user_message_id, &conversation_id) {
+                                                    if let Err(e) = c.resume_message_stream(conv_id_str, user_msg_id, dust_tx.clone()).await {
+                                                        tracing::error!(error = %e, "failed to resume message stream");
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::error!(tool = %tool_name, error = %e, "tool execution failed");
+                                        }
+                                    }
+                                });
+                            } else {
+                                tracing::debug!(tool = %tool_call.name, "entering tool approval mode");
+                                app.enter_tool_approval(tool_call);
+                            }
                         }
                         _ => {}
                     }
