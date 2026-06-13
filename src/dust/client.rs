@@ -254,6 +254,54 @@ impl DustClient {
         Ok(EventStream::new(response))
     }
 
+    pub async fn submit_tool_result(
+        &self,
+        conversation_id: &str,
+        tool_result: &crate::mcp::ToolResult,
+    ) -> Result<()> {
+        let token = token_refresh::get_valid_token().await?;
+        let body = serde_json::json!({
+            "tool_use_id": tool_result.tool_use_id,
+            "content": [
+                {
+                    "type": "text",
+                    "text": tool_result.content
+                }
+            ]
+        });
+
+        let path = &format!(
+            "/api/v1/w/{}/assistant/conversations/{conversation_id}/tool_results",
+            self.workspace_id
+        );
+
+        debug!(
+            conversation_id = %conversation_id,
+            tool_use_id = %tool_result.tool_use_id,
+            "submitting Dust tool result"
+        );
+
+        let response = self
+            .http
+            .post(self.url(path))
+            .header(CONTENT_TYPE, "application/json")
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .context("failed to submit tool result")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!(
+                "Dust rejected tool result submission: HTTP {status} — {body}"
+            );
+        }
+
+        Ok(())
+    }
+
     #[allow(clippy::too_many_lines)]
     pub async fn send_message_flow(
         &self,
@@ -464,6 +512,15 @@ impl DustClient {
     }
 
     fn message_body(&self, message: &str, agent_id: &str) -> MessageBody {
+        self.message_body_with_tools(message, agent_id, None)
+    }
+
+    fn message_body_with_tools(
+        &self,
+        message: &str,
+        agent_id: &str,
+        tools: Option<Vec<crate::mcp::McpTool>>,
+    ) -> MessageBody {
         MessageBody {
             content: message.to_string(),
             mentions: vec![Mention {
@@ -476,6 +533,7 @@ impl DustClient {
                 email: self.user_context.email.clone(),
                 full_name: self.user_context.full_name.clone(),
             },
+            tools,
         }
     }
 

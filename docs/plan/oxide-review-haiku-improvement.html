@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oxide Review Skill - Haiku Exploration Improvement Plan</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }
+        h2 { color: #34495e; margin-top: 30px; border-left: 4px solid #3498db; padding-left: 10px; }
+        h3 { color: #7f8c8d; margin-top: 20px; }
+        .objective { background: #e8f4f8; padding: 15px; border-left: 4px solid #3498db; margin: 20px 0; border-radius: 4px; }
+        .section { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .improvement { background: #f0f9ff; padding: 15px; margin: 15px 0; border-left: 4px solid #2ecc71; border-radius: 4px; }
+        .risk { background: #fff5f0; padding: 15px; margin: 15px 0; border-left: 4px solid #e74c3c; border-radius: 4px; }
+        .architecture { background: #f9f3ff; padding: 15px; margin: 15px 0; border-left: 4px solid #9b59b6; border-radius: 4px; }
+        code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: 'Monaco', 'Courier New', monospace; }
+        pre { background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        pre code { background: none; padding: 0; color: inherit; }
+        ul { margin: 10px 0; padding-left: 20px; }
+        li { margin: 8px 0; }
+        .highlight { background: #fffacd; padding: 2px 4px; }
+        table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background: #34495e; color: white; }
+        tr:hover { background: #f5f5f5; }
+        .acceptance { background: #f0fdf4; padding: 15px; border-left: 4px solid #22c55e; margin: 15px 0; border-radius: 4px; }
+        .timeline { background: #f3e5f5; padding: 15px; border-left: 4px solid #9c27b0; margin: 15px 0; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>🚀 Oxide Review Skill - Haiku Exploration Improvement Plan</h1>
+
+    <div class="objective">
+        <strong>Objective:</strong> Improve the oxide-review skill to leverage haiku-4.5 sub-agents for all codebase exploration tasks, enabling faster, more efficient code analysis while reserving the main Claude session for synthesis, finding prioritization, and review writing.
+    </div>
+
+    <div class="section">
+        <h2>Current State Analysis</h2>
+        <p>The current <code>oxide-review</code> skill performs all analysis in the main Claude session:</p>
+        <ul>
+            <li>Reads plan documents, ADRs, and changed files directly</li>
+            <li>Runs <code>git status</code>, <code>git diff</code>, and test commands</li>
+            <li>Analyzes code for bugs, regressions, and plan mismatches</li>
+            <li>Writes findings to <code>feedback.md</code></li>
+        </ul>
+        <p><strong>Limitation:</strong> All exploratory tasks (file reading, git commands, test execution) consume the main session's context budget, reducing capacity for complex analysis and synthesis.</p>
+    </div>
+
+    <div class="section">
+        <h2>Proposed Architecture</h2>
+        <div class="architecture">
+            <strong>Two-Agent Pattern:</strong>
+            <ul>
+                <li><strong>Main Claude (Sonnet/Opus):</strong> Orchestrates review, synthesizes findings, writes feedback.md, makes judgment calls</li>
+                <li><strong>Sub-Agent (Haiku):</strong> Performs all file reads, git commands, test runs, and preliminary analysis</li>
+            </ul>
+        </div>
+
+        <h3>Responsibilities Division</h3>
+        <table>
+            <tr>
+                <th>Task</th>
+                <th>Primary Agent</th>
+                <th>Rationale</th>
+            </tr>
+            <tr>
+                <td>Read plan documents (docs/plan/*.html, docs/adr/*.md)</td>
+                <td>Haiku (sub-agent)</td>
+                <td>Fast extraction of acceptance criteria</td>
+            </tr>
+            <tr>
+                <td>Run git status, git diff commands</td>
+                <td>Haiku (sub-agent)</td>
+                <td>Efficient file enumeration</td>
+            </tr>
+            <tr>
+                <td>Read changed files with context</td>
+                <td>Haiku (sub-agent)</td>
+                <td>Can read large files efficiently</td>
+            </tr>
+            <tr>
+                <td>Run cargo test, tmux smoke tests</td>
+                <td>Haiku (sub-agent)</td>
+                <td>Lightweight execution, reports pass/fail</td>
+            </tr>
+            <tr>
+                <td>Preliminary code analysis</td>
+                <td>Haiku (sub-agent)</td>
+                <td>Flags obvious issues, summarizes findings</td>
+            </tr>
+            <tr>
+                <td>Validate and prioritize findings</td>
+                <td>Main Claude</td>
+                <td>Needs full context, makes judgment calls</td>
+            </tr>
+            <tr>
+                <td>Write feedback.md</td>
+                <td>Main Claude</td>
+                <td>Final arbiter of findings and tone</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>Implementation Details</h2>
+
+        <h3>1. New Skill Structure</h3>
+        <pre><code>.claude/skills/oxide-review/
+├── SKILL.md                    # Main skill docs (updated with workflow)
+├── index.js                    # Main entry point (calls haiku sub-agent)
+├── haiku-exploration.js        # Sub-agent definition (haiku model)
+├── common.js                   # Shared utilities (prompt templates, parsing)
+└── README.md                   # Implementation notes</code></pre>
+
+        <h3>2. Haiku Sub-Agent Tasks</h3>
+        <p>The Haiku sub-agent will accept these exploration requests:</p>
+        <div class="improvement">
+            <strong>Exploration Request Format:</strong>
+            <pre><code>{
+  type: "explore",
+  task: "read-plan" | "read-diffs" | "read-files" | "run-tests" | "analyze-code",
+  params: {
+    planPath?: string,           // e.g., "docs/plan/my-feature.html"
+    filePaths?: string[],        // e.g., ["src/main.rs", "src/config.rs"]
+    testType?: "unit" | "smoke", // default: "unit"
+    focus?: string               // e.g., "memory leaks" | "API compatibility"
+  }
+}</code></pre>
+        </div>
+
+        <h3>3. Main Skill Workflow</h3>
+        <div class="improvement">
+            <strong>Revised Review Workflow (using Haiku sub-agent):</strong>
+            <ol>
+                <li><strong>Parse user request</strong> → identify plan document / scope</li>
+                <li><strong>Call Haiku sub-agent</strong> with "read-plan" task
+                    <ul>
+                        <li>Sub-agent reads plan/ADR, extracts acceptance criteria</li>
+                        <li>Returns structured summary: <code>{criteria: [...], scope: "...", risks: [...]}</code></li>
+                    </ul>
+                </li>
+                <li><strong>Call Haiku sub-agent</strong> with "read-diffs" task
+                    <ul>
+                        <li>Sub-agent runs <code>git status</code>, <code>git diff</code></li>
+                        <li>Returns list of changed files + file sizes</li>
+                    </ul>
+                </li>
+                <li><strong>Call Haiku sub-agent</strong> with "read-files" task
+                    <ul>
+                        <li>Sub-agent reads each changed file + context</li>
+                        <li>Returns file contents with line numbers</li>
+                    </ul>
+                </li>
+                <li><strong>Call Haiku sub-agent</strong> with "run-tests" task
+                    <ul>
+                        <li>Sub-agent runs <code>nix develop --command cargo test</code></li>
+                        <li>Returns test results: pass/fail, timing, output excerpt</li>
+                    </ul>
+                </li>
+                <li><strong>Call Haiku sub-agent</strong> with "analyze-code" task
+                    <ul>
+                        <li>Sub-agent performs preliminary code analysis</li>
+                        <li>Returns findings: bugs, regressions, plan mismatches, opportunities</li>
+                    </ul>
+                </li>
+                <li><strong>Main Claude synthesizes</strong> all sub-agent findings
+                    <ul>
+                        <li>Validate and prioritize findings</li>
+                        <li>Make judgment calls on severity</li>
+                        <li>Write final feedback.md</li>
+                    </ul>
+                </li>
+            </ol>
+        </div>
+
+        <h3>4. Haiku Sub-Agent Prompts</h3>
+        <p>Each task type will have a focused system prompt template:</p>
+        <div class="improvement">
+            <strong>Example: "analyze-code" task prompt</strong>
+            <pre><code>You are a code reviewer analyzing Rust code for the Oxide project.
+Focus on:
+1. Bugs and undefined behavior (memory safety, panic paths)
+2. Plan mismatches (does this match docs/plan/...)
+3. Test coverage gaps
+4. Performance regressions
+
+File contents and acceptance criteria will be provided.
+Return findings as JSON:
+{
+  findings: [
+    { severity: "issue|suggestion|question", title: "...", file: "...", line?: number, comment: "..." }
+  ],
+  summary: "brief assessment"
+}</code></pre>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Key Changes to oxide-review/SKILL.md</h2>
+        <div class="improvement">
+            <strong>Section: "Review workflow (updated)"</strong>
+            <p>Will include:</p>
+            <ul>
+                <li>Explanation of haiku sub-agent delegation</li>
+                <li>When sub-agent is called vs. main Claude</li>
+                <li>How to interpret sub-agent findings vs. main review</li>
+                <li>Performance expectations (faster exploration, same quality synthesis)</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Benefits & Tradeoffs</h2>
+
+        <h3>Benefits</h3>
+        <div class="improvement">
+            <ul>
+                <li><strong>Faster exploration:</strong> Haiku handles file I/O, git commands, test runs with lower latency</li>
+                <li><strong>Preserved context budget:</strong> Main Claude has full capacity for complex analysis and synthesis</li>
+                <li><strong>Cost efficiency:</strong> Haiku sub-agent is cheaper than main Claude for exploratory tasks</li>
+                <li><strong>Scalability:</strong> Can parallelize multiple exploration tasks (read multiple files in parallel via haiku)</li>
+                <li><strong>Better findings:</strong> Main Claude can focus on prioritization and judgment calls, not bogged down by I/O</li>
+            </ul>
+        </div>
+
+        <h3>Tradeoffs & Risks</h3>
+        <div class="risk">
+            <ul>
+                <li><strong>Latency:</strong> Serial sub-agent calls add round-trip latency (mitigated by async/parallel calls where possible)</li>
+                <li><strong>Model consistency:</strong> Haiku may miss subtle issues that Sonnet/Opus would catch (mitigated by main Claude validation step)</li>
+                <li><strong>Complexity:</strong> Sub-agent orchestration adds implementation complexity (mitigated by clear task interfaces)</li>
+                <li><strong>Token usage:</strong> Passing findings back to main Claude duplicates some context (acceptable tradeoff)</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Implementation Checklist</h2>
+        <div class="acceptance">
+            <h3>Phase 1: Haiku Sub-Agent Framework</h3>
+            <ul>
+                <li>[ ] Create <code>haiku-exploration.js</code> with sub-agent definition</li>
+                <li>[ ] Define task interface (types, request/response schemas)</li>
+                <li>[ ] Implement Haiku system prompts for each task type</li>
+                <li>[ ] Add error handling and retry logic</li>
+            </ul>
+
+            <h3>Phase 2: Integrate with Main Skill</h3>
+            <ul>
+                <li>[ ] Update <code>index.js</code> to call Haiku sub-agent</li>
+                <li>[ ] Implement orchestration logic (call sequence, result aggregation)</li>
+                <li>[ ] Update <code>SKILL.md</code> with new workflow documentation</li>
+                <li>[ ] Test end-to-end review workflow</li>
+            </ul>
+
+            <h3>Phase 3: Testing & Validation</h3>
+            <ul>
+                <li>[ ] Manual test: run <code>/oxide-review</code> on a sample branch</li>
+                <li>[ ] Validate findings quality matches baseline</li>
+                <li>[ ] Measure performance improvement (exploration time)</li>
+                <li>[ ] Update README with implementation notes</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Questions for Review</h2>
+        <ul>
+            <li>Should Haiku sub-agent calls be parallelized (e.g., read multiple files concurrently)?</li>
+            <li>Do you want Haiku to perform full code analysis, or just surface findings for main Claude to validate?</li>
+            <li>Should each exploration task be a separate Agent call, or bundle related tasks?</li>
+            <li>Any specific linting/analysis patterns you want Haiku to focus on (e.g., clippy violations)?</li>
+            <li>Should sub-agent findings be logged/cacheable for debugging?</li>
+        </ul>
+    </div>
+
+    <div class="timeline">
+        <strong>Estimated Implementation Time:</strong> 4-6 hours for full implementation + testing
+        <ul>
+            <li>Phase 1 (sub-agent framework): 1-2 hours</li>
+            <li>Phase 2 (integration): 2-3 hours</li>
+            <li>Phase 3 (testing + docs): 1-2 hours</li>
+        </ul>
+    </div>
+
+</body>
+</html>

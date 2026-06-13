@@ -6,6 +6,7 @@ mod dust;
 mod event;
 mod handler;
 mod input_buffer;
+mod mcp;
 mod observability;
 mod slash;
 mod ui;
@@ -226,6 +227,26 @@ async fn run_tui() -> io::Result<()> {
                                         }
                                     }
                                     PickerAction::None => {}
+                                }
+                            }
+                            AppMode::ToolApproval(_) => {
+                                match key.code {
+                                    crossterm::event::KeyCode::Char('y') | crossterm::event::KeyCode::Enter => {
+                                        if let Some(tool_call) = app.current_tool_call() {
+                                            let tool_name = tool_call.name.clone();
+                                            let input_json = tool_call.input.clone();
+                                            let tool_use_id = tool_call.id.clone();
+                                            app.exit_tool_approval();
+
+                                            // Tool execution will be handled after we can initialize McpManager
+                                            tracing::debug!(tool_name = %tool_name, "tool approved by user");
+                                        }
+                                    }
+                                    crossterm::event::KeyCode::Char('n') | crossterm::event::KeyCode::Esc => {
+                                        app.exit_tool_approval();
+                                        tracing::debug!("tool denied by user");
+                                    }
+                                    _ => {}
                                 }
                             }
                             AppMode::Chat => {

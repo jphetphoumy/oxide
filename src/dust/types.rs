@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::mcp::ToolCall;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageContext {
@@ -18,14 +20,16 @@ pub struct Mention {
     pub configuration_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MessageBody {
     pub content: String,
     pub mentions: Vec<Mention>,
     pub context: MessageContext,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<crate::mcp::McpTool>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CreateConversationRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -139,6 +143,21 @@ pub enum StreamEvent {
     Unknown,
 }
 
+impl StreamEvent {
+    pub fn extract_tool_use(&self) -> Option<ToolCall> {
+        match self {
+            StreamEvent::AgentActionSuccess { action } => {
+                if let Some("tool_use") = action.get("type").and_then(|t| t.as_str()) {
+                    serde_json::from_value(action.clone()).ok()
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct AgentInfo {
     #[serde(rename = "sId")]
@@ -177,6 +196,7 @@ mod tests {
                     email: None,
                     full_name: Some("Oxide User".to_string()),
                 },
+                tools: None,
             },
         };
 
@@ -227,6 +247,7 @@ mod tests {
                 email: None,
                 full_name: None,
             },
+            tools: None,
         };
 
         let json = serde_json::to_value(request).expect("serialize");

@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::dust::types::{AgentInfo, ConversationSummary};
+use crate::mcp::ToolCall;
 
 #[derive(Debug, Clone)]
 pub struct PickerState {
@@ -19,10 +20,16 @@ pub struct ResumePickerState {
 }
 
 #[derive(Debug, Clone)]
+pub struct ToolApprovalState {
+    pub tool_call: ToolCall,
+}
+
+#[derive(Debug, Clone)]
 pub enum AppMode {
     Chat,
     Picker(PickerState),
     ResumePicker(ResumePickerState),
+    ToolApproval(ToolApprovalState),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -372,6 +379,22 @@ impl App {
             "Started a new conversation with {}",
             self.agent_name
         ));
+    }
+
+    pub fn enter_tool_approval(&mut self, tool_call: ToolCall) {
+        self.mode = AppMode::ToolApproval(ToolApprovalState { tool_call });
+    }
+
+    pub fn exit_tool_approval(&mut self) {
+        self.mode = AppMode::Chat;
+    }
+
+    pub fn current_tool_call(&self) -> Option<&ToolCall> {
+        if let AppMode::ToolApproval(state) = &self.mode {
+            Some(&state.tool_call)
+        } else {
+            None
+        }
     }
 }
 

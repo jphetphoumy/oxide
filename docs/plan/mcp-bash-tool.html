@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oxide — MCP Support &amp; Bash Tool</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-dim: #1f6feb33;
+      --green: #3fb950;
+      --green-dim: #23863533;
+      --yellow: #d29922;
+      --yellow-dim: #d2992233;
+      --red: #f85149;
+      --red-dim: #f8514933;
+      --orange: #db6d28;
+      --orange-dim: #db6d2833;
+      --purple: #bc8cff;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    header .subtitle {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-top: 0.25rem;
+    }
+
+    .meta {
+      display: flex;
+      gap: 1.5rem;
+      margin-top: 0.75rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .meta span::before {
+      content: '■ ';
+      color: var(--accent);
+    }
+
+    .status-badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 3px;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-left: 0.5rem;
+    }
+
+    .todo  { background: var(--yellow-dim); color: var(--yellow); }
+    .done  { background: var(--green-dim);  color: var(--green);  }
+    .risky { background: var(--red-dim);    color: var(--red);    }
+
+    h2 {
+      font-size: 1.1rem;
+      color: var(--green);
+      margin: 2rem 0 1rem;
+      border-left: 3px solid var(--green);
+      padding-left: 0.75rem;
+    }
+
+    h2.phase-done {
+      color: var(--text-muted);
+      border-left-color: var(--text-muted);
+    }
+
+    h3 {
+      font-size: 0.95rem;
+      color: var(--yellow);
+      margin: 1.5rem 0 0.5rem;
+    }
+
+    p, li {
+      font-size: 0.85rem;
+      color: var(--text);
+    }
+
+    ul, ol {
+      padding-left: 1.5rem;
+      margin: 0.5rem 0;
+    }
+
+    li { margin: 0.3rem 0; }
+
+    code {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      color: var(--purple);
+    }
+
+    pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem;
+      overflow-x: auto;
+      margin: 0.75rem 0;
+      font-size: 0.8rem;
+      line-height: 1.5;
+    }
+
+    pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      color: var(--text);
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin: 1rem 0;
+    }
+
+    .card-accent  { border-left: 3px solid var(--accent); }
+    .card-green   { border-left: 3px solid var(--green); }
+    .card-yellow  { border-left: 3px solid var(--yellow); }
+    .card-red     { border-left: 3px solid var(--red); }
+    .card-orange  { border-left: 3px solid var(--orange); }
+    .card-muted   { border-left: 3px solid var(--text-muted); opacity: 0.6; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.75rem 0;
+      font-size: 0.8rem;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .tag {
+      font-size: 0.7rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      font-weight: 600;
+    }
+
+    .tag-new { background: var(--green-dim); color: var(--green); }
+    .tag-mod { background: var(--yellow-dim); color: var(--yellow); }
+
+    .flow-diagram {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      margin: 1rem 0;
+      font-size: 0.8rem;
+    }
+
+    .flow-step {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .flow-arrow {
+      color: var(--text-muted);
+      margin-left: 1.5rem;
+    }
+
+    .flow-label {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 0.35rem 0.75rem;
+      border-radius: 4px;
+    }
+
+    .flow-label.user   { border-color: var(--accent); color: var(--accent); }
+    .flow-label.system { border-color: var(--green);  color: var(--green); }
+    .flow-label.api    { border-color: var(--yellow); color: var(--yellow); }
+    .flow-label.ui     { border-color: var(--purple); color: var(--purple); }
+    .flow-label.danger { border-color: var(--red);    color: var(--red); }
+
+    .step-number {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 50%;
+      background: var(--accent-dim);
+      color: var(--accent);
+      font-size: 0.75rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .file-tree {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.8;
+    }
+
+    .file-tree .new { color: var(--green); }
+    .file-tree .mod { color: var(--yellow); }
+
+    hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 2rem 0;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin: 1rem 0;
+    }
+
+    .tui-mockup {
+      background: #000;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      font-size: 0.8rem;
+      line-height: 1.4;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+
+    .tui-mockup .prompt    { color: var(--accent); }
+    .tui-mockup .hint      { color: var(--text-muted); }
+    .tui-mockup .agent     { color: var(--green); font-weight: bold; }
+    .tui-mockup .user-msg  { color: var(--text); }
+    .tui-mockup .tool-call { color: var(--orange); }
+    .tui-mockup .tool-out  { color: var(--text-muted); }
+    .tui-mockup .approve   { color: var(--yellow); font-weight: bold; }
+    .tui-mockup .deny      { color: var(--red); font-weight: bold; }
+    .tui-mockup .highlight { background: #1a1a1a; display: inline-block; width: 100%; padding: 0 0.25rem; }
+    .tui-mockup .border    { color: #444; }
+
+    @media (max-width: 640px) {
+      .summary-grid { grid-template-columns: 1fr; }
+      body { padding: 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>MCP Support &amp; Bash Tool</h1>
+  <p class="subtitle">Model Context Protocol client, built-in bash tool, tool-call UX, and Dust streaming integration</p>
+  <div class="meta">
+    <span>issue #11</span>
+    <span>2026-06-13</span>
+    <span>oxide · ratatui · MCP JSON-RPC</span>
+  </div>
+</header>
+
+<!-- ─────────────────── OVERVIEW ─────────────────── -->
+
+<h2>Overview</h2>
+
+<p>
+  This plan adds Model Context Protocol (MCP) support to Oxide. MCP lets AI agents
+  invoke locally-defined tools — starting with a bash shell tool — and receive the
+  results back before continuing to generate their response. Oxide acts as an
+  <strong>MCP client</strong>: it discovers tools from configured MCP servers
+  (or its own built-in servers), exposes them to the Dust agent when sending a
+  message, and handles the round-trip execution loop.
+</p>
+
+<div class="summary-grid">
+  <div class="card card-accent">
+    <h3>What this adds</h3>
+    <ul>
+      <li>Config block for MCP servers in <code>config.toml</code></li>
+      <li>MCP client: stdio JSON-RPC process management + tool discovery</li>
+      <li>Built-in bash MCP server (no external process needed)</li>
+      <li>Tool-call rendering in the chat transcript</li>
+      <li>Safety confirmation modal (approve / deny per call)</li>
+      <li>Dust streaming: parse <code>tool_use</code> events + submit results</li>
+    </ul>
+  </div>
+  <div class="card card-accent">
+    <h3>Non-goals</h3>
+    <ul>
+      <li>GUI MCP server editor</li>
+      <li>Remote MCP servers (HTTP transport) — stdio only for now</li>
+      <li>Tool result streaming (results are sent atomically)</li>
+      <li>Per-tool permission policies beyond approve/deny</li>
+      <li>Sandbox / container isolation for bash commands</li>
+      <li>Exposing Dust's built-in tools (search, data sources)</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ─────────────────── UX MOCKUPS ─────────────────── -->
+
+<h2>UX Mockups</h2>
+
+<h3>1. Tool call block in the chat transcript</h3>
+
+<p>When the agent invokes a tool, it appears inline in the conversation as a
+  distinct block — before the tool result arrives.</p>
+
+<div class="tui-mockup">
+<pre>
+  <span class="agent">dust</span>  I'll check what's in your working directory.
+
+  <span class="tool-call">⚙ bash</span>  <span class="hint">─────────────────────────────────────────</span>
+  <span class="tool-call">  $ ls -la /home/user/project</span>
+  <span class="hint">  ──────────────────────────────────────────</span>
+  <span class="approve">[y] approve</span>   <span class="deny">[n] deny</span>   <span class="hint">[e] edit</span>
+</pre>
+</div>
+
+<h3>2. After approval — tool output block</h3>
+
+<div class="tui-mockup">
+<pre>
+  <span class="agent">dust</span>  I'll check what's in your working directory.
+
+  <span class="tool-call">⚙ bash</span>  <span class="hint">─────────────────────────────────────────</span>
+  <span class="tool-call">  $ ls -la /home/user/project</span>
+  <span class="hint">  ──────────────────────────────────────────</span>
+  <span class="tool-out">  total 48</span>
+  <span class="tool-out">  drwxr-xr-x  8 user user 4096 Jun 13 10:00 .</span>
+  <span class="tool-out">  drwxr-xr-x 32 user user 4096 Jun 13 09:00 ..</span>
+  <span class="tool-out">  -rw-r--r--  1 user user 1234 Jun 13 10:00 Cargo.toml</span>
+  <span class="hint">  ──────────────────────────────────────────</span>
+
+  <span class="agent">dust</span>  Your project contains a <span class="user-msg">Cargo.toml</span>, so it's a Rust project...
+</pre>
+</div>
+
+<h3>3. After denial</h3>
+
+<div class="tui-mockup">
+<pre>
+  <span class="tool-call">⚙ bash</span>  <span class="hint">─────────────────────────────────────────</span>
+  <span class="tool-call">  $ rm -rf /tmp/build</span>
+  <span class="hint">  ──────────────────────────────────────────</span>
+  <span class="deny">  ✗ denied by user</span>
+</pre>
+</div>
+
+<!-- ─────────────────── CONFIG ─────────────────── -->
+
+<h2>Configuration Format</h2>
+
+<p>MCP servers are declared in <code>~/.config/oxide/config.toml</code>. The built-in
+  bash server needs no <code>command</code> — it runs in-process.</p>
+
+<pre><code>[mcp]
+auto_approve = false   # if true, skip confirmation modal for all tools
+
+# built-in bash tool — no command field needed
+[[mcp.servers]]
+name    = "bash"
+builtin = "bash"
+
+# external MCP server
+[[mcp.servers]]
+name    = "my-tools"
+command = "npx"
+args    = ["-y", "@my-org/mcp-server"]
+env     = { MY_API_KEY = "secret" }
+</code></pre>
+
+<p>The <code>auto_approve</code> flag defaults to <code>false</code>. When <code>true</code>
+  all tool calls execute without confirmation — useful for trusted, non-destructive toolsets.</p>
+
+<!-- ─────────────────── MCP PROTOCOL ─────────────────── -->
+
+<h2>MCP Protocol Overview</h2>
+
+<p>
+  MCP uses JSON-RPC 2.0 over stdio. The client writes a request to the server's
+  stdin; the server writes a response to its stdout. Messages are newline-delimited JSON.
+</p>
+
+<h3>Relevant JSON-RPC methods</h3>
+
+<table>
+  <thead>
+    <tr><th>Direction</th><th>Method</th><th>Purpose</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>client → server</td><td><code>initialize</code></td><td>Handshake; negotiate protocol version</td></tr>
+    <tr><td>client → server</td><td><code>tools/list</code></td><td>Discover available tools and their JSON schemas</td></tr>
+    <tr><td>client → server</td><td><code>tools/call</code></td><td>Execute a tool with given arguments</td></tr>
+    <tr><td>server → client</td><td>response</td><td>Tool result (content array)</td></tr>
+  </tbody>
+</table>
+
+<h3>Tool discovery response shape</h3>
+
+<pre><code>{
+  "tools": [
+    {
+      "name": "bash",
+      "description": "Run a bash command and return its stdout/stderr",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "command": { "type": "string", "description": "Shell command to execute" }
+        },
+        "required": ["command"]
+      }
+    }
+  ]
+}</code></pre>
+
+<h3>Tool call result shape</h3>
+
+<pre><code>{
+  "content": [
+    { "type": "text", "text": "total 48\ndrwxr-xr-x ..." }
+  ],
+  "isError": false
+}</code></pre>
+
+<!-- ─────────────────── DUST INTEGRATION ─────────────────── -->
+
+<h2>Dust API Integration</h2>
+
+<p>
+  When creating a Dust message, available tools are listed in the request body.
+  The SSE stream may then emit a <code>tool_use</code> event asking Oxide to run a tool.
+  After execution, Oxide sends the tool result via a follow-up API call before the
+  agent continues generating.
+</p>
+
+<h3>Message request with tools</h3>
+
+<pre><code>POST /api/v1/w/{wId}/assistant/conversations/{cId}/messages
+{
+  "content":  [{ "type": "text", "value": "what's in my project?" }],
+  "mentions": [{ "configurationId": "dust" }],
+  "context":  { ... },
+  "tools": [
+    {
+      "name":        "bash",
+      "description": "Run a bash command",
+      "inputSchema": { ... }
+    }
+  ]
+}</code></pre>
+
+<h3>SSE stream — tool_use event</h3>
+
+<pre><code>event: agent_action_success
+data: {
+  "action": {
+    "type":  "tool_use",
+    "id":    "toolu_abc123",
+    "name":  "bash",
+    "input": { "command": "ls -la /home/user/project" }
+  }
+}</code></pre>
+
+<h3>Tool result submission</h3>
+
+<pre><code>POST /api/v1/w/{wId}/assistant/conversations/{cId}/tool_results
+{
+  "tool_use_id": "toolu_abc123",
+  "content": [
+    { "type": "text", "text": "total 48\ndrwxr-xr-x ..." }
+  ]
+}</code></pre>
+
+<p>After the result is submitted, the SSE stream resumes and the agent continues generating.</p>
+
+<!-- ─────────────────── ARCHITECTURE ─────────────────── -->
+
+<h2>Architecture</h2>
+
+<h3>New types</h3>
+
+<pre><code>// src/mcp/types.rs
+
+struct McpTool {
+    name:         String,
+    description:  String,
+    input_schema: serde_json::Value,
+}
+
+struct ToolCall {
+    id:     String,    // Dust tool_use_id
+    name:   String,    // matches McpTool::name
+    input:  serde_json::Value,
+}
+
+struct ToolResult {
+    tool_use_id: String,
+    content:     String,  // stdout/stderr merged
+    is_error:    bool,
+}
+
+enum ToolApproval { Approved, Denied }
+</code></pre>
+
+<h3>App state additions</h3>
+
+<pre><code>// src/app.rs additions
+
+enum AppMode {
+    Chat,
+    Picker(PickerState),
+    ToolApproval(ToolCall),  // NEW — awaiting user approve/deny
+}
+
+struct App {
+    // existing fields ...
+    mcp_tools: Vec&lt;McpTool&gt;,          // discovered at startup
+    pending_tool_call: Option&lt;ToolCall&gt;,
+}
+</code></pre>
+
+<h3>MCP module layout</h3>
+
+<div class="file-tree">
+<pre>
+src/mcp/
+<span class="new">├── mod.rs        NEW  public API: McpManager, discover tools</span>
+<span class="new">├── types.rs      NEW  McpTool, ToolCall, ToolResult</span>
+<span class="new">├── client.rs     NEW  JSON-RPC over stdio, request/response routing</span>
+<span class="new">├── process.rs    NEW  spawn/kill MCP server subprocesses</span>
+<span class="new">└── bash.rs       NEW  built-in bash tool (no subprocess)</span>
+</pre>
+</div>
+
+<h3>Full file change surface</h3>
+
+<table>
+  <thead>
+    <tr><th>File</th><th>Change</th><th>Notes</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>src/mcp/mod.rs</code></td>    <td><span class="tag tag-new">new</span></td><td><code>McpManager</code>: init, tool list, dispatch calls</td></tr>
+    <tr><td><code>src/mcp/types.rs</code></td>   <td><span class="tag tag-new">new</span></td><td>Protocol types: <code>McpTool</code>, <code>ToolCall</code>, <code>ToolResult</code></td></tr>
+    <tr><td><code>src/mcp/client.rs</code></td>  <td><span class="tag tag-new">new</span></td><td>Stdio JSON-RPC: <code>initialize</code>, <code>tools/list</code>, <code>tools/call</code></td></tr>
+    <tr><td><code>src/mcp/process.rs</code></td> <td><span class="tag tag-new">new</span></td><td>Subprocess lifecycle for external MCP servers</td></tr>
+    <tr><td><code>src/mcp/bash.rs</code></td>    <td><span class="tag tag-new">new</span></td><td>Built-in bash tool: <code>tokio::process::Command</code>, timeout, merged output</td></tr>
+    <tr><td><code>src/ui/tool_call.rs</code></td><td><span class="tag tag-new">new</span></td><td>Render tool-call + tool-result blocks in transcript</td></tr>
+    <tr><td><code>src/config.rs</code></td>       <td><span class="tag tag-mod">mod</span></td><td>Add <code>McpConfig</code>, <code>McpServerConfig</code> to <code>OxideConfig</code></td></tr>
+    <tr><td><code>src/app.rs</code></td>           <td><span class="tag tag-mod">mod</span></td><td>Add <code>AppMode::ToolApproval</code>, <code>mcp_tools</code>, <code>pending_tool_call</code></td></tr>
+    <tr><td><code>src/handler.rs</code></td>       <td><span class="tag tag-mod">mod</span></td><td>Add <code>Action::ApproveTool</code>, <code>Action::DenyTool</code>, key routing in approval mode</td></tr>
+    <tr><td><code>src/dust/types.rs</code></td>   <td><span class="tag tag-mod">mod</span></td><td>Add <code>ToolUseAction</code> to <code>StreamEvent</code> variants</td></tr>
+    <tr><td><code>src/dust/stream.rs</code></td>  <td><span class="tag tag-mod">mod</span></td><td>Parse <code>tool_use</code> SSE events into <code>ToolCall</code></td></tr>
+    <tr><td><code>src/dust/client.rs</code></td>  <td><span class="tag tag-mod">mod</span></td><td>Add <code>tools</code> field to message request + <code>submit_tool_result()</code></td></tr>
+    <tr><td><code>src/main.rs</code></td>           <td><span class="tag tag-mod">mod</span></td><td>Init <code>McpManager</code>, handle <code>ToolApproval</code> mode in event loop</td></tr>
+    <tr><td><code>src/ui/messages.rs</code></td>  <td><span class="tag tag-mod">mod</span></td><td>Integrate tool-call block rendering into transcript</td></tr>
+    <tr><td><code>Cargo.toml</code></td>           <td><span class="tag tag-mod">mod</span></td><td>No new deps required (tokio already covers process spawning)</td></tr>
+  </tbody>
+</table>
+
+<!-- ─────────────────── DATA FLOW ─────────────────── -->
+
+<h2>Data Flow — Tool Execution Round-Trip</h2>
+
+<div class="flow-diagram">
+  <div class="flow-step">
+    <span class="step-number">1</span>
+    <span class="flow-label system">App starts → <code>McpManager::init()</code> discovers tools from all servers</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">2</span>
+    <span class="flow-label user">User submits a message</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">3</span>
+    <span class="flow-label api">Dust API: POST message with <code>tools: [...]</code> array → start SSE stream</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">4</span>
+    <span class="flow-label system">SSE stream emits <code>agent_generation_token</code> (normal text) → rendered in transcript</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">5</span>
+    <span class="flow-label api">SSE stream emits <code>tool_use</code> event → parsed into <code>ToolCall</code></span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">6</span>
+    <span class="flow-label ui">App enters <code>ToolApproval</code> mode → tool-call block shown with [y/n] prompt</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">7a</span>
+    <span class="flow-label user">User presses <code>y</code> → <code>Action::ApproveTool</code></span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">8a</span>
+    <span class="flow-label system"><code>McpManager::call_tool()</code> → bash executes command, returns <code>ToolResult</code></span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">9a</span>
+    <span class="flow-label api">Dust API: <code>submit_tool_result()</code> → stream resumes</span>
+  </div>
+  <div class="flow-arrow">&darr;</div>
+  <div class="flow-step">
+    <span class="step-number">10</span>
+    <span class="flow-label system">App returns to <code>Chat</code> mode, agent continues generating</span>
+  </div>
+</div>
+
+<p style="margin-top: 0.75rem; color: var(--text-muted); font-size: 0.8rem;">
+  Step 7b: if the user presses <code>n</code> (deny), <code>ToolResult { is_error: true, content: "denied by user" }</code>
+  is submitted and the agent is informed it cannot proceed with that tool call.
+</p>
+
+<!-- ─────────────────── PHASES ─────────────────── -->
+
+<h2>Phase 1 — Config &amp; Types <span class="status-badge todo">todo</span></h2>
+
+<div class="card card-yellow">
+  <h3>Deliverables</h3>
+  <ul>
+    <li><code>src/mcp/types.rs</code> — <code>McpTool</code>, <code>ToolCall</code>, <code>ToolResult</code>, <code>ToolApproval</code></li>
+    <li><code>src/config.rs</code> — parse <code>[mcp]</code> and <code>[[mcp.servers]]</code> from TOML</li>
+    <li>Unit tests: config deserialization, missing-field defaults</li>
+  </ul>
+  <h3 style="margin-top: 1rem;">Acceptance</h3>
+  <ul>
+    <li><code>cargo test</code> passes with config round-trip tests</li>
+    <li>Existing config without <code>[mcp]</code> block still loads without error</li>
+  </ul>
+</div>
+
+<h2>Phase 2 — Built-in Bash Tool <span class="status-badge todo">todo</span></h2>
+
+<div class="card card-yellow">
+  <h3>Deliverables</h3>
+  <ul>
+    <li><code>src/mcp/bash.rs</code> — <code>BashTool</code> struct, <code>execute(command: &amp;str) -&gt; ToolResult</code></li>
+    <li>Merges stdout + stderr, includes exit code</li>
+    <li>60-second timeout via <code>tokio::time::timeout</code></li>
+    <li>Returns <code>is_error: true</code> on non-zero exit or timeout</li>
+    <li>Unit tests: success, non-zero exit, timeout (mock clock), empty output</li>
+  </ul>
+  <h3 style="margin-top: 1rem;">Acceptance</h3>
+  <ul>
+    <li><code>BashTool::execute("echo hello")</code> returns <code>"hello\n"</code></li>
+    <li><code>BashTool::execute("exit 1")</code> returns <code>is_error: true</code></li>
+  </ul>
+</div>
+
+<h2>Phase 3 — MCP Client (external servers) <span class="status-badge todo">todo</span></h2>
+
+<div class="card card-yellow">
+  <h3>Deliverables</h3>
+  <ul>
+    <li><code>src/mcp/process.rs</code> — spawn subprocess, write stdin, read stdout line by line</li>
+    <li><code>src/mcp/client.rs</code> — JSON-RPC request/response framing, <code>initialize</code> handshake, <code>tools/list</code>, <code>tools/call</code></li>
+    <li><code>src/mcp/mod.rs</code> — <code>McpManager</code>: init all servers, aggregate tool lists, dispatch calls by tool name</li>
+    <li>Unit tests: JSON-RPC serialization/deserialization, tool dispatch routing</li>
+  </ul>
+  <h3 style="margin-top: 1rem;">Acceptance</h3>
+  <ul>
+    <li><code>McpManager::list_tools()</code> returns the built-in bash tool when only the builtin is configured</li>
+    <li>External server is skipped gracefully if subprocess fails to start (logged, not fatal)</li>
+  </ul>
+</div>
+
+<h2>Phase 4 — Dust Streaming Integration <span class="status-badge todo">todo</span></h2>
+
+<div class="card card-yellow">
+  <h3>Deliverables</h3>
+  <ul>
+    <li><code>src/dust/types.rs</code> — add <code>StreamEvent::ToolUse(ToolCall)</code> variant</li>
+    <li><code>src/dust/stream.rs</code> — parse <code>tool_use</code> SSE events into <code>ToolCall</code></li>
+    <li><code>src/dust/client.rs</code> — add <code>tools: Vec&lt;McpTool&gt;</code> to message POST body; add <code>submit_tool_result(wid, cid, result: ToolResult)</code></li>
+    <li>Unit tests: SSE parsing for tool_use, submit_tool_result request shape</li>
+  </ul>
+  <h3 style="margin-top: 1rem;">Acceptance</h3>
+  <ul>
+    <li>SSE fixture with <code>tool_use</code> event parses correctly into <code>ToolCall</code></li>
+    <li>Message POST with tools serializes expected JSON shape</li>
+  </ul>
+</div>
+
+<h2>Phase 5 — Approval UX &amp; App State <span class="status-badge todo">todo</span></h2>
+
+<div class="card card-yellow">
+  <h3>Deliverables</h3>
+  <ul>
+    <li><code>src/app.rs</code> — add <code>AppMode::ToolApproval(ToolCall)</code>; store pending call; transition logic</li>
+    <li><code>src/handler.rs</code> — in <code>ToolApproval</code> mode: <code>y</code> → <code>Action::ApproveTool</code>, <code>n</code> → <code>Action::DenyTool</code>, <code>Esc</code> → deny</li>
+    <li><code>src/main.rs</code> — on <code>StreamEvent::ToolUse</code>: enter <code>ToolApproval</code> mode; on approve/deny: call <code>McpManager::call_tool()</code>, submit result, return to <code>Chat</code></li>
+    <li><code>src/ui/tool_call.rs</code> — render tool-call block and tool-result block in transcript</li>
+    <li><code>src/ui/messages.rs</code> — integrate tool blocks into message rendering</li>
+    <li>Unit tests: mode transitions, key mappings, auto_approve bypass</li>
+  </ul>
+  <h3 style="margin-top: 1rem;">Acceptance</h3>
+  <ul>
+    <li>Pressing <code>y</code> in <code>ToolApproval</code> mode executes the tool and resumes streaming</li>
+    <li>Pressing <code>n</code> submits a denial result and resumes streaming</li>
+    <li>With <code>auto_approve = true</code>, the modal is skipped entirely</li>
+    <li>Tool-call block and result block render correctly in tmux manual test</li>
+  </ul>
+</div>
+
+<!-- ─────────────────── DESIGN DECISIONS ─────────────────── -->
+
+<h2>Key Design Decisions</h2>
+
+<div class="card card-yellow">
+  <h3>ToolApproval is a full AppMode, not a render hint</h3>
+  <p>
+    Unlike the slash-command menu (which is render-time only), tool approval
+    needs to <strong>block</strong> all other input — the streaming loop is paused
+    waiting for a user decision. A full <code>AppMode</code> variant makes this
+    explicit and prevents any accidental state transitions while waiting.
+  </p>
+</div>
+
+<div class="card card-yellow">
+  <h3>Built-in bash over embedded subprocess</h3>
+  <p>
+    The bash tool runs directly in Oxide via <code>tokio::process::Command</code>
+    rather than as a separate MCP stdio server. This avoids a self-pipe round-trip
+    and keeps the binary self-contained. External MCP servers still use the full
+    stdio JSON-RPC client for third-party toolsets.
+  </p>
+</div>
+
+<div class="card card-yellow">
+  <h3>Streaming pauses on tool_use</h3>
+  <p>
+    The SSE stream is held open but not consumed while Oxide waits for approval
+    and executes the tool. Dust's API design supports this — the agent waits for
+    the tool result before generating more tokens. No buffering of future events
+    is needed on the client side.
+  </p>
+</div>
+
+<div class="card card-red">
+  <h3>Security model: explicit approval only</h3>
+  <p>
+    The default is <strong>deny unless approved</strong>. <code>auto_approve</code>
+    is opt-in and clearly documented as dangerous. There is no sandboxing of bash
+    commands in this phase — that is a separate effort. The tool-call block always
+    shows the exact command so the user can make an informed decision.
+    Denial sends a structured error result back to the agent so it can respond
+    gracefully rather than hanging.
+  </p>
+</div>
+
+<!-- ─────────────────── FUTURE ─────────────────── -->
+
+<hr>
+
+<h2>Future Extensions</h2>
+<ul>
+  <li>HTTP/SSE MCP transport for remote tool servers</li>
+  <li>Per-server <code>auto_approve</code> (e.g. always approve read-only tools)</li>
+  <li>Sandbox isolation for bash (nsjail, bubblewrap, Docker)</li>
+  <li>Edit mode — let user modify the command before approving</li>
+  <li><code>/tools</code> slash command to list available MCP tools</li>
+  <li>Tool result truncation with scroll for large outputs</li>
+  <li>Persist tool session (carry tool list across conversation turns without re-discovery)</li>
+</ul>
+
+</body>
+</html>
