@@ -43,11 +43,7 @@ impl McpClient {
         Ok(tools)
     }
 
-    pub async fn call_tool(
-        &mut self,
-        tool_name: &str,
-        input: serde_json::Value,
-    ) -> Result<String> {
+    pub async fn call_tool(&mut self, tool_name: &str, input: serde_json::Value) -> Result<String> {
         let response = self
             .process
             .call(

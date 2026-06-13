@@ -12,10 +12,7 @@ impl BashTool {
     pub async fn execute(command: &str) -> ToolResult {
         let result = tokio::time::timeout(
             BASH_TIMEOUT,
-            Command::new("bash")
-                .arg("-c")
-                .arg(command)
-                .output(),
+            Command::new("bash").arg("-c").arg(command).output(),
         )
         .await;
 

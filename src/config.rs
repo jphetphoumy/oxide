@@ -91,6 +91,23 @@ mod tests {
     }
 
     #[test]
+    fn mcp_config_has_bash_server() {
+        let config = toml::from_str::<Config>(
+            r#"
+                [[mcp.servers]]
+                name = "bash"
+                builtin = "bash"
+            "#,
+        )
+        .expect("parse");
+
+        let mcp_cfg = config.mcp();
+        assert_eq!(mcp_cfg.servers.len(), 1);
+        assert_eq!(mcp_cfg.servers[0].name, "bash");
+        assert_eq!(mcp_cfg.servers[0].builtin, Some("bash".to_string()));
+    }
+
+    #[test]
     fn parses_mcp_builtin_bash_server() {
         let config = toml::from_str::<Config>(
             r#"

@@ -60,7 +60,11 @@ impl McpProcess {
         })
     }
 
-    pub async fn call(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
+    pub async fn call(
+        &mut self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value> {
         self.request_id += 1;
         let request = json!({
             "jsonrpc": "2.0",

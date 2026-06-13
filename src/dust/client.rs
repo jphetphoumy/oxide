@@ -45,7 +45,7 @@ pub enum DustEvent {
     Complete(Option<String>, Option<String>), // content, conversation_id
     Error(String),
     ConversationCreated(String),
-    UserMessageCreated(String),               // user_message_id for stream resumption
+    UserMessageCreated(String), // user_message_id for stream resumption
     ConversationsListed(Vec<ConversationSummary>),
     ConversationLoaded {
         conversation_id: String,
@@ -296,9 +296,7 @@ impl DustClient {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!(
-                "Dust rejected tool result submission: HTTP {status} — {body}"
-            );
+            anyhow::bail!("Dust rejected tool result submission: HTTP {status} — {body}");
         }
 
         Ok(())
@@ -387,7 +385,9 @@ impl DustClient {
                 .await?;
             (user_message_id, existing)
         } else {
-            let created = self.create_conversation_with_tools(&content, &self.agent_id, tools).await?;
+            let created = self
+                .create_conversation_with_tools(&content, &self.agent_id, tools)
+                .await?;
             let conversation_id = created.conversation.s_id.clone();
             let user_message_id = created
                 .message
@@ -594,7 +594,11 @@ impl DustClient {
         agent_id: &str,
         tools: Vec<crate::mcp::McpTool>,
     ) -> Result<String> {
-        let body = self.message_body_with_tools(message, agent_id, if tools.is_empty() { None } else { Some(tools) });
+        let body = self.message_body_with_tools(
+            message,
+            agent_id,
+            if tools.is_empty() { None } else { Some(tools) },
+        );
 
         let response: PostMessageResponse = self
             .send_message_request(
@@ -618,7 +622,11 @@ impl DustClient {
         let body = CreateConversationRequest {
             title: Some(conversation_title(message)),
             visibility: DEFAULT_VISIBILITY.to_string(),
-            message: self.message_body_with_tools(message, agent_id, if tools.is_empty() { None } else { Some(tools) }),
+            message: self.message_body_with_tools(
+                message,
+                agent_id,
+                if tools.is_empty() { None } else { Some(tools) },
+            ),
         };
 
         self.send_message_request(
@@ -639,6 +647,15 @@ impl DustClient {
         agent_id: &str,
         tools: Option<Vec<crate::mcp::McpTool>>,
     ) -> MessageBody {
+        if let Some(ref tool_list) = tools {
+            tracing::info!(
+                tool_count = tool_list.len(),
+                tools = ?tool_list.iter().map(|t| &t.name).collect::<Vec<_>>(),
+                "including tools in message body"
+            );
+        } else {
+            tracing::info!("no tools in message body");
+        }
         MessageBody {
             content: message.to_string(),
             mentions: vec![Mention {

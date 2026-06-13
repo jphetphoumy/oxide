@@ -22,8 +22,11 @@ impl McpManager {
         let mut tools = Vec::new();
         let mut clients = Vec::new();
 
+        tracing::debug!(server_count = config.servers.len(), "initializing MCP manager");
         for server in &config.servers {
+            tracing::debug!(server_name = %server.name, builtin = ?server.builtin, has_command = server.command.is_some(), "processing MCP server");
             if server.builtin == Some("bash".to_string()) {
+                tracing::info!(server_name = %server.name, "discovered bash builtin tool");
                 tools.push(McpTool {
                     name: "bash".to_string(),
                     description: "Run a bash command and return its stdout/stderr".to_string(),
@@ -40,30 +43,33 @@ impl McpManager {
                 });
             } else if server.command.is_some() {
                 match McpClient::connect(server).await {
-                    Ok(mut client) => {
-                        match client.list_tools().await {
-                            Ok(mut server_tools) => {
-                                tools.append(&mut server_tools);
-                                clients.push(client);
-                            }
-                            Err(e) => {
-                                warn!(
-                                    "failed to list tools from MCP server '{}': {}",
-                                    server.name, e
-                                );
-                            }
+                    Ok(mut client) => match client.list_tools().await {
+                        Ok(mut server_tools) => {
+                            tools.append(&mut server_tools);
+                            clients.push(client);
                         }
-                    }
+                        Err(e) => {
+                            warn!(
+                                "failed to list tools from MCP server '{}': {}",
+                                server.name, e
+                            );
+                        }
+                    },
                     Err(e) => {
-                        warn!(
-                            "failed to connect to MCP server '{}': {}",
-                            server.name, e
-                        );
+                        warn!("failed to connect to MCP server '{}': {}", server.name, e);
                     }
                 }
             }
         }
 
+        tracing::info!(
+            total_tools = tools.len(),
+            total_clients = clients.len(),
+            "MCP manager initialized successfully"
+        );
+        for tool in &tools {
+            tracing::info!(tool_name = %tool.name, tool_desc = %tool.description, "MCP tool loaded");
+        }
         Ok(McpManager { tools, clients })
     }
 
@@ -71,7 +77,11 @@ impl McpManager {
         self.tools.clone()
     }
 
-    pub async fn call_tool(&mut self, tool_name: &str, input: serde_json::Value) -> Result<ToolResult> {
+    pub async fn call_tool(
+        &mut self,
+        tool_name: &str,
+        input: serde_json::Value,
+    ) -> Result<ToolResult> {
         if tool_name == "bash" {
             let command = input
                 .get("command")
@@ -142,5 +152,31 @@ mod tests {
 
         assert!(!result.is_error);
         assert_eq!(result.content, "hello");
+    }
+
+    #[tokio::test]
+    async fn bash_tool_runs_ls_command() {
+        let config = McpConfig {
+            auto_approve: false,
+            servers: vec![crate::config::McpServerConfig {
+                name: "bash".to_string(),
+                builtin: Some("bash".to_string()),
+                command: None,
+                args: vec![],
+                env: std::collections::HashMap::new(),
+            }],
+        };
+
+        let mut manager = McpManager::init(&config).await.expect("init");
+        let result = manager
+            .call_tool("bash", serde_json::json!({"command": "ls -al /tmp"}))
+            .await
+            .expect("call");
+
+        // ls -al should succeed and return output
+        assert!(!result.is_error);
+        assert!(!result.content.is_empty());
+        // Output should contain typical ls fields like 'total' or directory entries
+        assert!(result.content.contains("total") || result.content.len() > 10);
     }
 }
