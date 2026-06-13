@@ -84,19 +84,16 @@ impl McpManager {
         }
 
         for client in &mut self.clients {
-            match client.call_tool(tool_name, input.clone()).await {
-                Ok(output) => {
-                    return Ok(ToolResult {
-                        tool_use_id: String::new(),
-                        content: output,
-                        is_error: false,
-                    });
-                }
-                Err(_) => continue,
+            if let Ok(output) = client.call_tool(tool_name, input.clone()).await {
+                return Ok(ToolResult {
+                    tool_use_id: String::new(),
+                    content: output,
+                    is_error: false,
+                });
             }
         }
 
-        anyhow::bail!("tool '{}' not found", tool_name)
+        anyhow::bail!("tool '{tool_name}' not found")
     }
 }
 

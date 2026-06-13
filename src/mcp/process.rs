@@ -16,7 +16,7 @@ pub struct McpProcess {
 
 impl Drop for McpProcess {
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        let _ = self.child.start_kill();
     }
 }
 

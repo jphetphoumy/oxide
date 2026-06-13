@@ -246,18 +246,18 @@ async fn run_tui() -> io::Result<()> {
                                             let tool_use_id = tool_call.id.clone();
                                             app.exit_tool_approval();
 
-                                            let conversation_id = app.conversation_id().map(|s| s.to_string());
+                                            let conversation_id = app.conversation_id().map(ToString::to_string);
                                             let dust_client = client.clone();
                                             let mcp = mcp_manager.clone();
                                             tokio::spawn(async move {
                                                 match mcp.lock().await.call_tool(&tool_name, input_json).await {
                                                     Ok(mut result) => {
                                                         result.tool_use_id = tool_use_id;
-                                                        if let Some(ref conv_id) = conversation_id {
-                                                            if let Some(ref c) = dust_client {
-                                                                if let Err(e) = c.submit_tool_result(conv_id, &result).await {
-                                                                    tracing::error!(error = %e, "failed to submit tool result");
-                                                                }
+                                                        if let (Some(conv_id), Some(c)) =
+                                                            (conversation_id.as_ref(), dust_client.as_ref())
+                                                        {
+                                                            if let Err(e) = c.submit_tool_result(conv_id, &result).await {
+                                                                tracing::error!(error = %e, "failed to submit tool result");
                                                             }
                                                         }
                                                     }
@@ -271,7 +271,7 @@ async fn run_tui() -> io::Result<()> {
                                     crossterm::event::KeyCode::Char('n') | crossterm::event::KeyCode::Esc => {
                                         if let Some(tool_call) = app.current_tool_call().cloned() {
                                             let tool_use_id = tool_call.id.clone();
-                                            let conversation_id = app.conversation_id().map(|s| s.to_string());
+                                            let conversation_id = app.conversation_id().map(ToString::to_string);
                                             let dust_client = client.clone();
 
                                             let denial_result = crate::mcp::ToolResult {
@@ -283,11 +283,11 @@ async fn run_tui() -> io::Result<()> {
                                             app.exit_tool_approval();
 
                                             tokio::spawn(async move {
-                                                if let Some(ref conv_id) = conversation_id {
-                                                    if let Some(ref c) = dust_client {
-                                                        if let Err(e) = c.submit_tool_result(conv_id, &denial_result).await {
-                                                            tracing::error!(error = %e, "failed to submit denial result");
-                                                        }
+                                                if let (Some(conv_id), Some(c)) =
+                                                    (conversation_id.as_ref(), dust_client.as_ref())
+                                                {
+                                                    if let Err(e) = c.submit_tool_result(conv_id, &denial_result).await {
+                                                        tracing::error!(error = %e, "failed to submit denial result");
                                                     }
                                                 }
                                             });
