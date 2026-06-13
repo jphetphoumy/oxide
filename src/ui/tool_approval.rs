@@ -5,7 +5,6 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use crate::app::AppMode;
-use crate::mcp::ToolCall;
 
 pub fn render_tool_approval(frame: &mut Frame, mode: &AppMode) {
     let AppMode::ToolApproval(state) = mode else {

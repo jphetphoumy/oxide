@@ -422,6 +422,7 @@ impl App {
 mod tests {
     use super::*;
     use crate::dust::types::AgentInfo;
+    use crate::mcp::ToolCall;
     use std::path::PathBuf;
 
     #[test]
@@ -973,5 +974,54 @@ mod tests {
             app.messages()[1].content,
             "Resumed conversation: My Project"
         );
+    }
+
+    #[test]
+    fn enter_tool_approval_sets_mode() {
+        let mut app = App::new("test-agent", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "tool_123".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+
+        app.enter_tool_approval(tool_call.clone());
+        match app.mode() {
+            AppMode::ToolApproval(_) => {}
+            _ => panic!("Expected ToolApproval mode"),
+        }
+    }
+
+    #[test]
+    fn current_tool_call_returns_tool_in_approval_mode() {
+        let mut app = App::new("test-agent", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "tool_123".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+
+        app.enter_tool_approval(tool_call.clone());
+        let current = app.current_tool_call();
+        assert!(current.is_some());
+        assert_eq!(current.unwrap().id, "tool_123");
+        assert_eq!(current.unwrap().name, "bash");
+    }
+
+    #[test]
+    fn exit_tool_approval_returns_to_chat_mode() {
+        let mut app = App::new("test-agent", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "tool_123".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+
+        app.enter_tool_approval(tool_call);
+        app.exit_tool_approval();
+        match app.mode() {
+            AppMode::Chat => {}
+            _ => panic!("Expected Chat mode"),
+        }
     }
 }

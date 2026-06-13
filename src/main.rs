@@ -35,8 +35,8 @@ use crate::dust::client::{DustClient, DustEvent, resolve_agent_id};
 use crate::dust::types::AgentInfo;
 use crate::event::{AppEvent, EventReader};
 use crate::handler::{
-    ActionOutcome, PickerAction, SlashCommand, apply_action, handle_key_event, handle_mouse_event,
-    handle_picker_key,
+    Action, ActionOutcome, PickerAction, SlashCommand, apply_action, handle_key_event,
+    handle_mouse_event, handle_picker_key, handle_tool_approval_key,
 };
 use crate::input_buffer::InputBuffer;
 use crate::mcp::McpManager;
@@ -241,8 +241,9 @@ async fn run_tui() -> io::Result<()> {
                                 }
                             }
                             AppMode::ToolApproval(_) => {
-                                match key.code {
-                                    crossterm::event::KeyCode::Char('y') | crossterm::event::KeyCode::Enter => {
+                                let action = handle_tool_approval_key(key);
+                                match action {
+                                    Action::ApproveTool => {
                                         if let Some(tool_call) = app.current_tool_call().cloned() {
                                             let tool_name = tool_call.name.clone();
                                             let input_json = tool_call.input.clone();
@@ -278,7 +279,7 @@ async fn run_tui() -> io::Result<()> {
                                             });
                                         }
                                     }
-                                    crossterm::event::KeyCode::Char('n') | crossterm::event::KeyCode::Esc => {
+                                    Action::DenyTool => {
                                         if let Some(tool_call) = app.current_tool_call().cloned() {
                                             let tool_use_id = tool_call.id.clone();
                                             let conversation_id = app.conversation_id().map(ToString::to_string);

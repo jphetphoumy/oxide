@@ -412,4 +412,35 @@ mod tests {
             _ => panic!("Expected AgentMessage variant"),
         }
     }
+
+    #[test]
+    fn extract_tool_use_from_action_parses_tool_call() {
+        let action = serde_json::json!({
+            "type": "tool_use",
+            "id": "tool_123",
+            "name": "bash",
+            "input": {
+                "command": "ls -la"
+            }
+        });
+
+        let tool_call = StreamEvent::extract_tool_use_from_action(&action);
+        assert!(tool_call.is_some());
+        let tool_call = tool_call.unwrap();
+        assert_eq!(tool_call.id, "tool_123");
+        assert_eq!(tool_call.name, "bash");
+        assert_eq!(tool_call.input["command"], "ls -la");
+    }
+
+    #[test]
+    fn extract_tool_use_from_action_ignores_non_tool_use() {
+        let action = serde_json::json!({
+            "type": "message",
+            "id": "msg_123",
+            "text": "hello"
+        });
+
+        let tool_call = StreamEvent::extract_tool_use_from_action(&action);
+        assert!(tool_call.is_none());
+    }
 }
