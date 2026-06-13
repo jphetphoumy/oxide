@@ -262,6 +262,17 @@ impl App {
         self.push_system_message(&format!("Switched to {agent_name}"));
         self.mode = AppMode::Chat;
     }
+
+    pub fn new_conversation(&mut self) {
+        self.messages.clear();
+        self.is_streaming = false;
+        self.conversation_id = None;
+        self.scroll_offset = 0;
+        self.push_system_message(&format!(
+            "Started a new conversation with {}",
+            self.agent_name
+        ));
+    }
 }
 
 #[cfg(test)]
@@ -564,5 +575,69 @@ mod tests {
         app.push_system_message("network down");
         assert_eq!(app.messages()[0].role, Role::System);
         assert_eq!(app.messages()[0].content, "network down");
+    }
+
+    #[test]
+    fn new_conversation_empties_messages() {
+        let mut app = App::new("a", "/workspace", None);
+        assert!(app.send_message("hello"));
+        assert!(app.send_message("world"));
+        assert_eq!(app.messages().len(), 4); // 2 user + 2 agent placeholder
+        app.new_conversation();
+        assert_eq!(app.messages().len(), 1); // only system message
+    }
+
+    #[test]
+    fn new_conversation_stops_streaming() {
+        let mut app = App::new("a", "/workspace", None);
+        assert!(app.send_message("hello"));
+        assert!(app.is_streaming());
+        app.new_conversation();
+        assert!(!app.is_streaming());
+    }
+
+    #[test]
+    fn new_conversation_clears_conversation_id() {
+        let mut app = App::new("a", "/workspace", None);
+        app.set_conversation_id("conv-123");
+        assert_eq!(app.conversation_id(), Some("conv-123"));
+        app.new_conversation();
+        assert_eq!(app.conversation_id(), None);
+    }
+
+    #[test]
+    fn new_conversation_pushes_system_message() {
+        let mut app = App::new("my-agent", "/workspace", None);
+        app.new_conversation();
+        assert_eq!(app.messages().len(), 1);
+        assert_eq!(app.messages()[0].role, Role::System);
+        assert!(app.messages()[0].content.contains("my-agent"));
+        assert!(app.messages()[0].content.contains("new conversation"));
+    }
+
+    #[test]
+    fn new_conversation_resets_scroll_offset() {
+        let mut app = App::new("a", "/workspace", None);
+        app.scroll_up(10);
+        assert_eq!(app.scroll_offset(), 10);
+        app.new_conversation();
+        assert_eq!(app.scroll_offset(), 0);
+    }
+
+    #[test]
+    fn new_conversation_clears_all_state() {
+        let mut app = App::new("my-agent", "/workspace", None);
+        assert!(app.send_message("hello"));
+        assert!(app.send_message("world"));
+        app.set_conversation_id("conv-123");
+        app.scroll_up(5);
+
+        app.new_conversation();
+
+        assert_eq!(app.messages().len(), 1); // only system message
+        assert!(!app.is_streaming());
+        assert_eq!(app.conversation_id(), None);
+        assert_eq!(app.scroll_offset(), 0);
+        assert!(app.messages()[0].content.contains("my-agent"));
     }
 }

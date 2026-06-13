@@ -163,19 +163,23 @@ async fn run_tui() -> io::Result<()> {
                             if let Some(content) = outcome.submit {
                                 pending_submit = Some(content);
                             }
-                            if outcome.slash_command == Some(SlashCommand::Switch) {
-                                app.enter_picker();
-                                if let Some(c) = client.clone() {
-                                    let tx = agent_tx.clone();
-                                    tokio::spawn(async move {
-                                        match c.list_agents().await {
-                                            Ok(agents) => { let _ = tx.send(agents); }
-                                            Err(e) => {
-                                                tracing::error!(error = %e, "failed to list agents");
+                            match outcome.slash_command {
+                                Some(SlashCommand::New) => app.new_conversation(),
+                                Some(SlashCommand::Switch) => {
+                                    app.enter_picker();
+                                    if let Some(c) = client.clone() {
+                                        let tx = agent_tx.clone();
+                                        tokio::spawn(async move {
+                                            match c.list_agents().await {
+                                                Ok(agents) => { let _ = tx.send(agents); }
+                                                Err(e) => {
+                                                    tracing::error!(error = %e, "failed to list agents");
+                                                }
                                             }
-                                        }
-                                    });
+                                        });
+                                    }
                                 }
+                                None => {}
                             }
                         }
                     }
@@ -192,12 +196,17 @@ async fn run_tui() -> io::Result<()> {
             message = dust_rx.recv() => {
                 if let Some(message) = message {
                     match message {
-                        DustEvent::Token(token) => app.append_agent_token(&token),
-                        DustEvent::Complete(content) => app.complete_stream(content.as_deref()),
+                        DustEvent::Token(token, conv_id) if conv_id == app.conversation_id().map(ToString::to_string) => {
+                            app.append_agent_token(&token);
+                        }
+                        DustEvent::Complete(content, conv_id) if conv_id == app.conversation_id().map(ToString::to_string) => {
+                            app.complete_stream(content.as_deref());
+                        }
                         DustEvent::Error(error) => app.push_system_message(&error),
                         DustEvent::ConversationCreated(conversation_id) => {
                             app.set_conversation_id(conversation_id);
                         }
+                        _ => {}
                     }
                 } else {
                     break;
@@ -212,12 +221,21 @@ async fn run_tui() -> io::Result<()> {
 
         while let Ok(message) = dust_rx.try_recv() {
             match message {
-                DustEvent::Token(token) => app.append_agent_token(&token),
-                DustEvent::Complete(content) => app.complete_stream(content.as_deref()),
+                DustEvent::Token(token, conv_id)
+                    if conv_id == app.conversation_id().map(ToString::to_string) =>
+                {
+                    app.append_agent_token(&token);
+                }
+                DustEvent::Complete(content, conv_id)
+                    if conv_id == app.conversation_id().map(ToString::to_string) =>
+                {
+                    app.complete_stream(content.as_deref());
+                }
                 DustEvent::Error(error) => app.push_system_message(&error),
                 DustEvent::ConversationCreated(conversation_id) => {
                     app.set_conversation_id(conversation_id);
                 }
+                _ => {}
             }
         }
 

@@ -5,11 +5,18 @@ pub struct SlashCommandDef {
     pub description: &'static str,
 }
 
-pub const COMMANDS: &[SlashCommandDef] = &[SlashCommandDef {
-    name: "switch",
-    slash_name: "/switch",
-    description: "Switch to a different agent",
-}];
+pub const COMMANDS: &[SlashCommandDef] = &[
+    SlashCommandDef {
+        name: "new",
+        slash_name: "/new",
+        description: "Start a new conversation",
+    },
+    SlashCommandDef {
+        name: "switch",
+        slash_name: "/switch",
+        description: "Switch to a different agent",
+    },
+];
 
 pub fn filter_commands(prefix: &str) -> Vec<&'static SlashCommandDef> {
     let prefix_lower = prefix.to_lowercase();
@@ -84,5 +91,28 @@ mod tests {
     fn complete_empty_returns_first_command() {
         let result = complete("");
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn filter_new_command() {
+        let results = filter_commands("new");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "new");
+    }
+
+    #[test]
+    fn filter_new_prefix() {
+        let results = filter_commands("ne");
+        assert!(results.iter().any(|cmd| cmd.name == "new"));
+    }
+
+    #[test]
+    fn complete_new_prefix() {
+        assert_eq!(complete("ne"), Some("/new"));
+    }
+
+    #[test]
+    fn complete_full_new_returns_itself() {
+        assert_eq!(complete("new"), Some("/new"));
     }
 }

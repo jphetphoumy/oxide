@@ -73,11 +73,13 @@ pub struct ActionOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SlashCommand {
+    New,
     Switch,
 }
 
 fn parse_slash_command(content: &str) -> Option<SlashCommand> {
     match content.trim() {
+        "/new" => Some(SlashCommand::New),
         "/switch" => Some(SlashCommand::Switch),
         _ => None,
     }
@@ -455,5 +457,42 @@ mod tests {
         let outcome = apply_action(&mut app, &mut input, Action::ScrollDown(3));
         assert_eq!(outcome, ActionOutcome::default());
         assert_eq!(app.scroll_offset(), 7);
+    }
+
+    #[test]
+    fn parse_new_slash_command() {
+        assert_eq!(parse_slash_command("/new"), Some(SlashCommand::New));
+    }
+
+    #[test]
+    fn parse_new_with_whitespace() {
+        assert_eq!(parse_slash_command("  /new  "), Some(SlashCommand::New));
+    }
+
+    #[test]
+    fn submit_new_command_produces_slash_command() {
+        let mut app = App::new("a", "/workspace", None);
+        let mut input = InputBuffer::new();
+        for c in "/new".chars() {
+            input.insert_char(c);
+        }
+
+        let outcome = apply_action(&mut app, &mut input, Action::Submit);
+
+        assert_eq!(outcome.slash_command, Some(SlashCommand::New));
+        assert!(outcome.submit.is_none());
+        assert!(app.messages().is_empty());
+    }
+
+    #[test]
+    fn submit_new_with_whitespace_still_detected() {
+        let mut app = App::new("a", "/workspace", None);
+        let mut input = InputBuffer::new();
+        for c in "  /new  ".chars() {
+            input.insert_char(c);
+        }
+
+        let outcome = apply_action(&mut app, &mut input, Action::Submit);
+        assert_eq!(outcome.slash_command, Some(SlashCommand::New));
     }
 }
