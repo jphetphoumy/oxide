@@ -163,19 +163,23 @@ async fn run_tui() -> io::Result<()> {
                             if let Some(content) = outcome.submit {
                                 pending_submit = Some(content);
                             }
-                            if outcome.slash_command == Some(SlashCommand::Switch) {
-                                app.enter_picker();
-                                if let Some(c) = client.clone() {
-                                    let tx = agent_tx.clone();
-                                    tokio::spawn(async move {
-                                        match c.list_agents().await {
-                                            Ok(agents) => { let _ = tx.send(agents); }
-                                            Err(e) => {
-                                                tracing::error!(error = %e, "failed to list agents");
+                            match outcome.slash_command {
+                                Some(SlashCommand::New) => app.new_conversation(),
+                                Some(SlashCommand::Switch) => {
+                                    app.enter_picker();
+                                    if let Some(c) = client.clone() {
+                                        let tx = agent_tx.clone();
+                                        tokio::spawn(async move {
+                                            match c.list_agents().await {
+                                                Ok(agents) => { let _ = tx.send(agents); }
+                                                Err(e) => {
+                                                    tracing::error!(error = %e, "failed to list agents");
+                                                }
                                             }
-                                        }
-                                    });
+                                        });
+                                    }
                                 }
+                                None => {}
                             }
                         }
                     }
