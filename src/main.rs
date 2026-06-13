@@ -445,9 +445,10 @@ async fn run_tui() -> io::Result<()> {
             if let Some(client) = client.clone() {
                 let conversation_id = app.conversation_id().map(ToOwned::to_owned);
                 let dust_tx = dust_tx.clone();
+                let tools = mcp_manager.lock().await.list_tools();
                 tokio::spawn(async move {
                     if let Err(error) = client
-                        .send_message_flow(conversation_id, content, dust_tx.clone())
+                        .send_message_flow(conversation_id, content, tools, dust_tx.clone())
                         .await
                     {
                         let _ = dust_tx.send(DustEvent::Error(error.to_string()));

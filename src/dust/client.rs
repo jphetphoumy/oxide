@@ -308,6 +308,7 @@ impl DustClient {
         &self,
         conversation_id: Option<String>,
         content: String,
+        tools: Vec<crate::mcp::McpTool>,
         tx: mpsc::UnboundedSender<DustEvent>,
     ) -> Result<()> {
         debug!(
@@ -317,11 +318,11 @@ impl DustClient {
         );
         let (user_message_id, conversation_id) = if let Some(existing) = conversation_id {
             let user_message_id = self
-                .post_message(&existing, &content, &self.agent_id)
+                .post_message_with_tools(&existing, &content, &self.agent_id, tools.clone())
                 .await?;
             (user_message_id, existing)
         } else {
-            let created = self.create_conversation(&content, &self.agent_id).await?;
+            let created = self.create_conversation_with_tools(&content, &self.agent_id, tools).await?;
             let conversation_id = created.conversation.s_id.clone();
             let user_message_id = created
                 .message
@@ -515,6 +516,48 @@ impl DustClient {
                 self.workspace_id
             ),
             "post message",
+            &body,
+        )
+        .await
+    }
+
+    async fn post_message_with_tools(
+        &self,
+        conversation_id: &str,
+        message: &str,
+        agent_id: &str,
+        tools: Vec<crate::mcp::McpTool>,
+    ) -> Result<String> {
+        let body = self.message_body_with_tools(message, agent_id, if tools.is_empty() { None } else { Some(tools) });
+
+        let response: PostMessageResponse = self
+            .send_message_request(
+                &format!(
+                    "/api/v1/w/{}/assistant/conversations/{conversation_id}/messages",
+                    self.workspace_id
+                ),
+                "post message",
+                &body,
+            )
+            .await?;
+        Ok(response.message.s_id)
+    }
+
+    async fn create_conversation_with_tools(
+        &self,
+        message: &str,
+        agent_id: &str,
+        tools: Vec<crate::mcp::McpTool>,
+    ) -> Result<CreateConversationResponse> {
+        let body = CreateConversationRequest {
+            title: Some(conversation_title(message)),
+            visibility: DEFAULT_VISIBILITY.to_string(),
+            message: self.message_body_with_tools(message, agent_id, if tools.is_empty() { None } else { Some(tools) }),
+        };
+
+        self.send_message_request(
+            &format!("/api/v1/w/{}/assistant/conversations", self.workspace_id),
+            "create conversation",
             &body,
         )
         .await
