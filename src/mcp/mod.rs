@@ -31,7 +31,7 @@ impl McpManager {
             if server.builtin == Some("bash".to_string()) {
                 tracing::info!(server_name = %server.name, "discovered bash builtin tool");
                 tools.push(McpTool {
-                    name: "pi_dust_extension__bash".to_string(),
+                    name: "oxide_bash".to_string(),
                     description: "Run a bash command and return its stdout/stderr".to_string(),
                     input_schema: serde_json::json!({
                         "type": "object",
@@ -85,7 +85,7 @@ impl McpManager {
         tool_name: &str,
         input: serde_json::Value,
     ) -> Result<ToolResult> {
-        if tool_name == "pi_dust_extension__bash" {
+        if tool_name == "oxide_bash" {
             let command = input
                 .get("command")
                 .and_then(|c| c.as_str())
@@ -131,7 +131,7 @@ mod tests {
         let tools = manager.list_tools();
 
         assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].name, "pi_dust_extension__bash");
+        assert_eq!(tools[0].name, "oxide_bash");
     }
 
     #[tokio::test]
@@ -149,7 +149,7 @@ mod tests {
 
         let mut manager = McpManager::init(&config).await.expect("init");
         let result = manager
-            .call_tool("pi_dust_extension__bash", serde_json::json!({"command": "echo hello"}))
+            .call_tool("oxide_bash", serde_json::json!({"command": "echo hello"}))
             .await
             .expect("call");
 
@@ -172,7 +172,7 @@ mod tests {
 
         let mut manager = McpManager::init(&config).await.expect("init");
         let result = manager
-            .call_tool("pi_dust_extension__bash", serde_json::json!({"command": "ls -al /tmp"}))
+            .call_tool("oxide_bash", serde_json::json!({"command": "ls -al /tmp"}))
             .await
             .expect("call");
 
