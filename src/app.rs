@@ -54,6 +54,7 @@ pub struct App {
     home_dir: Option<PathBuf>,
     should_quit: bool,
     conversation_id: Option<String>,
+    user_message_id: Option<String>,
     is_streaming: bool,
     mode: AppMode,
 }
@@ -69,6 +70,7 @@ impl App {
             home_dir,
             should_quit: false,
             conversation_id: None,
+            user_message_id: None,
             is_streaming: false,
             mode: AppMode::Chat,
         }
@@ -92,6 +94,14 @@ impl App {
 
     pub fn conversation_id(&self) -> Option<&str> {
         self.conversation_id.as_deref()
+    }
+
+    pub fn user_message_id(&self) -> Option<&str> {
+        self.user_message_id.as_deref()
+    }
+
+    pub fn set_user_message_id(&mut self, id: impl Into<String>) {
+        self.user_message_id = Some(id.into());
     }
 
     pub const fn is_streaming(&self) -> bool {

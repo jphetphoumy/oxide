@@ -249,8 +249,10 @@ async fn run_tui() -> io::Result<()> {
                                             app.exit_tool_approval();
 
                                             let conversation_id = app.conversation_id().map(ToString::to_string);
+                                            let user_message_id = app.user_message_id().map(ToString::to_string);
                                             let dust_client = client.clone();
                                             let mcp = mcp_manager.clone();
+                                            let dust_tx = dust_tx.clone();
                                             tokio::spawn(async move {
                                                 match mcp.lock().await.call_tool(&tool_name, input_json).await {
                                                     Ok(mut result) => {
@@ -260,6 +262,11 @@ async fn run_tui() -> io::Result<()> {
                                                         {
                                                             if let Err(e) = c.submit_tool_result(conv_id, &result).await {
                                                                 tracing::error!(error = %e, "failed to submit tool result");
+                                                            } else if let (Some(user_msg_id), Some(conv_id_str)) = (&user_message_id, &conversation_id) {
+                                                                // Resume streaming for next agent message
+                                                                if let Err(e) = c.resume_message_stream(conv_id_str, user_msg_id, dust_tx.clone()).await {
+                                                                    tracing::error!(error = %e, "failed to resume message stream");
+                                                                }
                                                             }
                                                         }
                                                     }
@@ -417,6 +424,9 @@ async fn run_tui() -> io::Result<()> {
                 DustEvent::Error(error) => app.push_system_message(&error),
                 DustEvent::ConversationCreated(conversation_id) => {
                     app.set_conversation_id(conversation_id);
+                }
+                DustEvent::UserMessageCreated(user_message_id) => {
+                    app.set_user_message_id(user_message_id);
                 }
                 DustEvent::ConversationsListed(conversations) => {
                     app.set_resume_conversations(conversations);

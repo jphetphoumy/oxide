@@ -45,6 +45,7 @@ pub enum DustEvent {
     Complete(Option<String>, Option<String>), // content, conversation_id
     Error(String),
     ConversationCreated(String),
+    UserMessageCreated(String),               // user_message_id for stream resumption
     ConversationsListed(Vec<ConversationSummary>),
     ConversationLoaded {
         conversation_id: String,
@@ -303,6 +304,66 @@ impl DustClient {
         Ok(())
     }
 
+    pub async fn resume_message_stream(
+        &self,
+        conversation_id: &str,
+        user_message_id: &str,
+        tx: mpsc::UnboundedSender<DustEvent>,
+    ) -> Result<()> {
+        debug!(
+            conversation_id = %conversation_id,
+            user_message_id = %user_message_id,
+            "resuming message stream after tool execution"
+        );
+
+        let agent_message_id = self
+            .wait_for_agent_message(conversation_id, user_message_id)
+            .await?;
+
+        debug!(
+            agent_message_id = %agent_message_id,
+            "found next agent message, resuming stream"
+        );
+
+        let mut stream = self
+            .stream_events(conversation_id, &agent_message_id)
+            .await?;
+
+        while let Some(event) = stream.next_event().await {
+            match event? {
+                StreamEvent::GenerationTokens {
+                    text,
+                    classification,
+                } if classification == "tokens" => {
+                    let _ = tx.send(DustEvent::Token(text, Some(conversation_id.to_string())));
+                }
+                StreamEvent::AgentMessageSuccess { message } => {
+                    debug!("resumed stream: agent message completed");
+                    let _ = tx.send(DustEvent::Complete(
+                        message.content,
+                        Some(conversation_id.to_string()),
+                    ));
+                    return Ok(());
+                }
+                StreamEvent::AgentError { error } => {
+                    let _ = tx.send(DustEvent::Error(format!(
+                        "Dust agent error (after tool): {}",
+                        error.message
+                    )));
+                    return Ok(());
+                }
+                StreamEvent::AgentActionSuccess { action } => {
+                    if let Some(tool_call) = StreamEvent::extract_tool_use_from_action(&action) {
+                        let _ = tx.send(DustEvent::ToolUse(tool_call));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
     #[allow(clippy::too_many_lines)]
     pub async fn send_message_flow(
         &self,
@@ -338,6 +399,7 @@ impl DustClient {
             "Dust conversation is ready"
         );
         let _ = tx.send(DustEvent::ConversationCreated(conversation_id.clone()));
+        let _ = tx.send(DustEvent::UserMessageCreated(user_message_id.clone()));
 
         let agent_message_id = self
             .wait_for_agent_message(&conversation_id, &user_message_id)
