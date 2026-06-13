@@ -75,12 +75,14 @@ pub struct ActionOutcome {
 pub enum SlashCommand {
     New,
     Switch,
+    Resume,
 }
 
 fn parse_slash_command(content: &str) -> Option<SlashCommand> {
     match content.trim() {
         "/new" => Some(SlashCommand::New),
         "/switch" => Some(SlashCommand::Switch),
+        "/resume" => Some(SlashCommand::Resume),
         _ => None,
     }
 }
@@ -494,5 +496,25 @@ mod tests {
 
         let outcome = apply_action(&mut app, &mut input, Action::Submit);
         assert_eq!(outcome.slash_command, Some(SlashCommand::New));
+    }
+
+    #[test]
+    fn parse_resume_slash_command() {
+        assert_eq!(parse_slash_command("/resume"), Some(SlashCommand::Resume));
+    }
+
+    #[test]
+    fn submit_resume_command_produces_slash_command() {
+        let mut app = App::new("a", "/workspace", None);
+        let mut input = InputBuffer::new();
+        for c in "/resume".chars() {
+            input.insert_char(c);
+        }
+
+        let outcome = apply_action(&mut app, &mut input, Action::Submit);
+
+        assert_eq!(outcome.slash_command, Some(SlashCommand::Resume));
+        assert!(outcome.submit.is_none());
+        assert!(app.messages().is_empty());
     }
 }

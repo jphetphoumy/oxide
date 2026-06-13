@@ -38,6 +38,7 @@ use crate::handler::{
 use crate::input_buffer::InputBuffer;
 use crate::ui::{
     input_height, render_command_menu, render_input, render_layout, render_messages, render_picker,
+    render_resume_picker,
 };
 
 fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
@@ -117,47 +118,117 @@ async fn run_tui() -> io::Result<()> {
             let filtered = app.picker_filtered_agents();
             let selected = app.picker_selected();
             render_picker(frame, app.mode(), &filtered, selected);
+
+            let filtered_convs = app.resume_filtered_conversations();
+            let selected_conv = app.resume_picker_selected();
+            render_resume_picker(frame, app.mode(), &filtered_convs, selected_conv);
         })?;
 
         tokio::select! {
             event = events.next() => {
                 match event {
                     Some(AppEvent::Key(key)) => {
-                        if matches!(app.mode(), AppMode::Picker(_)) {
-                            let picker_action = handle_picker_key(key);
-                            match picker_action {
-                                PickerAction::Cancel => app.exit_picker(),
-                                PickerAction::Select => {
-                                    let filtered = app.picker_filtered_agents();
-                                    let selected = app.picker_selected();
-                                    if let Some(agent) = filtered.get(selected) {
-                                        let agent_id = agent.s_id.clone();
-                                        let agent_name = agent.name.clone();
-                                        app.switch_agent(&agent_id, &agent_name);
-                                        if let Some(ref mut c) = client {
-                                            c.set_agent(&agent_id);
+                        match app.mode() {
+                            AppMode::Picker(_) => {
+                                let picker_action = handle_picker_key(key);
+                                match picker_action {
+                                    PickerAction::Cancel => app.exit_picker(),
+                                    PickerAction::Select => {
+                                        let filtered = app.picker_filtered_agents();
+                                        let selected = app.picker_selected();
+                                        if let Some(agent) = filtered.get(selected) {
+                                            let agent_id = agent.s_id.clone();
+                                            let agent_name = agent.name.clone();
+                                            app.switch_agent(&agent_id, &agent_name);
+                                            if let Some(ref mut c) = client {
+                                                c.set_agent(&agent_id);
+                                            }
                                         }
                                     }
-                                }
-                                PickerAction::MoveUp => app.picker_move_selection(-1),
-                                PickerAction::MoveDown => app.picker_move_selection(1),
-                                PickerAction::Type(c) => {
-                                    if let AppMode::Picker(state) = app.mode() {
-                                        let mut filter = state.filter.clone();
-                                        filter.push(c);
-                                        app.set_picker_filter(&filter);
+                                    PickerAction::MoveUp => app.picker_move_selection(-1),
+                                    PickerAction::MoveDown => app.picker_move_selection(1),
+                                    PickerAction::Type(c) => {
+                                        if let AppMode::Picker(state) = app.mode() {
+                                            let mut filter = state.filter.clone();
+                                            filter.push(c);
+                                            app.set_picker_filter(&filter);
+                                        }
                                     }
-                                }
-                                PickerAction::Backspace => {
-                                    if let AppMode::Picker(state) = app.mode() {
-                                        let mut filter = state.filter.clone();
-                                        filter.pop();
-                                        app.set_picker_filter(&filter);
+                                    PickerAction::Backspace => {
+                                        if let AppMode::Picker(state) = app.mode() {
+                                            let mut filter = state.filter.clone();
+                                            filter.pop();
+                                            app.set_picker_filter(&filter);
+                                        }
                                     }
+                                    PickerAction::None => {}
                                 }
-                                PickerAction::None => {}
                             }
-                        } else {
+                            AppMode::ResumePicker(_) => {
+                                let picker_action = handle_picker_key(key);
+                                match picker_action {
+                                    PickerAction::Cancel => app.exit_resume_picker(),
+                                    PickerAction::Select => {
+                                        let filtered = app.resume_filtered_conversations();
+                                        let selected = app.resume_picker_selected();
+                                        if let Some(conv) = filtered.get(selected) {
+                                            let conversation_id = conv.s_id.clone();
+                                            let title = conv.title.clone();
+                                            if let Some(c) = client.clone() {
+                                                let tx = dust_tx.clone();
+                                                tokio::spawn(async move {
+                                                    match c.get_conversation(&conversation_id).await {
+                                                        Ok(conversation) => {
+                                                            let messages: Vec<(String, String)> = conversation
+                                                                .content
+                                                                .iter()
+                                                                .flat_map(|group| group.iter())
+                                                                .filter_map(|msg| {
+                                                                    match msg {
+                                                                        crate::dust::types::ConversationMessage::UserMessage { content } => {
+                                                                            Some(("user".to_string(), content.clone()))
+                                                                        }
+                                                                        crate::dust::types::ConversationMessage::AgentMessage { content, .. } => {
+                                                                            content.as_ref().map(|c| ("agent".to_string(), c.clone()))
+                                                                        }
+                                                                        crate::dust::types::ConversationMessage::Other => None,
+                                                                    }
+                                                                })
+                                                                .collect();
+                                                            let _ = tx.send(DustEvent::ConversationLoaded {
+                                                                conversation_id,
+                                                                title,
+                                                                messages,
+                                                            });
+                                                        }
+                                                        Err(e) => {
+                                                            tracing::error!(error = %e, "failed to get conversation");
+                                                        }
+                                                    }
+                                                });
+                                            }
+                                        }
+                                    }
+                                    PickerAction::MoveUp => app.resume_picker_move_selection(-1),
+                                    PickerAction::MoveDown => app.resume_picker_move_selection(1),
+                                    PickerAction::Type(c) => {
+                                        if let AppMode::ResumePicker(state) = app.mode() {
+                                            let mut filter = state.filter.clone();
+                                            filter.push(c);
+                                            app.set_resume_filter(&filter);
+                                        }
+                                    }
+                                    PickerAction::Backspace => {
+                                        if let AppMode::ResumePicker(state) = app.mode() {
+                                            let mut filter = state.filter.clone();
+                                            filter.pop();
+                                            app.set_resume_filter(&filter);
+                                        }
+                                    }
+                                    PickerAction::None => {}
+                                }
+                            }
+                            AppMode::Chat => {
                             let action = handle_key_event(key);
                             let outcome: ActionOutcome = apply_action(&mut app, &mut input, action);
                             if let Some(content) = outcome.submit {
@@ -179,7 +250,24 @@ async fn run_tui() -> io::Result<()> {
                                         });
                                     }
                                 }
+                                Some(SlashCommand::Resume) => {
+                                    app.enter_resume_picker();
+                                    if let Some(c) = client.clone() {
+                                        let tx = dust_tx.clone();
+                                        tokio::spawn(async move {
+                                            match c.list_conversations().await {
+                                                Ok(conversations) => {
+                                                    let _ = tx.send(DustEvent::ConversationsListed(conversations));
+                                                }
+                                                Err(e) => {
+                                                    tracing::error!(error = %e, "failed to list conversations");
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
                                 None => {}
+                            }
                             }
                         }
                     }
@@ -205,6 +293,27 @@ async fn run_tui() -> io::Result<()> {
                         DustEvent::Error(error) => app.push_system_message(&error),
                         DustEvent::ConversationCreated(conversation_id) => {
                             app.set_conversation_id(conversation_id);
+                        }
+                        DustEvent::ConversationsListed(conversations) => {
+                            app.set_resume_conversations(conversations);
+                        }
+                        DustEvent::ConversationLoaded {
+                            conversation_id,
+                            title,
+                            messages,
+                        } => {
+                            let role_messages: Vec<_> = messages
+                                .into_iter()
+                                .map(|(role_str, content)| {
+                                    let role = match role_str.as_str() {
+                                        "user" => app::Role::User,
+                                        "system" => app::Role::System,
+                                        _ => app::Role::Agent("agent".to_string()),
+                                    };
+                                    (role, content)
+                                })
+                                .collect();
+                            app.restore_conversation(conversation_id, role_messages, title.as_deref());
                         }
                         _ => {}
                     }
@@ -234,6 +343,27 @@ async fn run_tui() -> io::Result<()> {
                 DustEvent::Error(error) => app.push_system_message(&error),
                 DustEvent::ConversationCreated(conversation_id) => {
                     app.set_conversation_id(conversation_id);
+                }
+                DustEvent::ConversationsListed(conversations) => {
+                    app.set_resume_conversations(conversations);
+                }
+                DustEvent::ConversationLoaded {
+                    conversation_id,
+                    title,
+                    messages,
+                } => {
+                    let role_messages: Vec<_> = messages
+                        .into_iter()
+                        .map(|(role_str, content)| {
+                            let role = match role_str.as_str() {
+                                "user" => app::Role::User,
+                                "system" => app::Role::System,
+                                _ => app::Role::Agent("agent".to_string()),
+                            };
+                            (role, content)
+                        })
+                        .collect();
+                    app.restore_conversation(conversation_id, role_messages, title.as_deref());
                 }
                 _ => {}
             }

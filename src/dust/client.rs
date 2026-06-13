@@ -7,9 +7,9 @@ use tracing::{debug, error, trace};
 use crate::auth::{token_refresh, token_storage};
 use crate::dust::stream::EventStream;
 use crate::dust::types::{
-    AgentInfo, Conversation, ConversationMessage, CreateConversationRequest,
-    CreateConversationResponse, ListAgentsResponse, Mention, MessageBody, MessageContext,
-    PostMessageResponse, StreamEvent,
+    AgentInfo, Conversation, ConversationMessage, ConversationSummary, CreateConversationRequest,
+    CreateConversationResponse, ListAgentsResponse, ListConversationsResponse, Mention,
+    MessageBody, MessageContext, PostMessageResponse, StreamEvent,
 };
 
 pub const DUST_CLI_USER_AGENT: &str = "Dust CLI";
@@ -45,6 +45,12 @@ pub enum DustEvent {
     Complete(Option<String>, Option<String>), // content, conversation_id
     Error(String),
     ConversationCreated(String),
+    ConversationsListed(Vec<ConversationSummary>),
+    ConversationLoaded {
+        conversation_id: String,
+        title: Option<String>,
+        messages: Vec<(String, String)>, // (role, content) where role is "user" | "agent" | "system"
+    },
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -140,6 +146,40 @@ impl DustClient {
             .context("failed to decode Dust agent list response")?;
 
         Ok(body.agent_configurations)
+    }
+
+    pub async fn list_conversations(&self) -> Result<Vec<ConversationSummary>> {
+        let token = token_refresh::get_valid_token().await?;
+        let url = self.url(&format!(
+            "/api/w/{}/assistant/conversations",
+            self.workspace_id
+        ));
+        let response = self
+            .http
+            .get(&url)
+            .bearer_auth(token)
+            .send()
+            .await
+            .context("failed to list Dust conversations")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Dust rejected conversations list request: HTTP {status} — {body}");
+        }
+
+        let body: ListConversationsResponse = response
+            .json()
+            .await
+            .context("failed to decode Dust conversations list response")?;
+
+        let mut conversations = body.conversations;
+        conversations.sort_by(|a, b| {
+            b.updated
+                .unwrap_or(b.created)
+                .cmp(&a.updated.unwrap_or(a.created))
+        });
+        Ok(conversations)
     }
 
     pub async fn create_conversation(
@@ -332,7 +372,7 @@ impl DustClient {
         Ok(())
     }
 
-    async fn get_conversation(&self, conversation_id: &str) -> Result<Conversation> {
+    pub async fn get_conversation(&self, conversation_id: &str) -> Result<Conversation> {
         let token = token_refresh::get_valid_token().await?;
         let response = self
             .http
@@ -560,6 +600,7 @@ fn find_agent_message(conversation: &Conversation, user_message_id: &str) -> Opt
             ConversationMessage::AgentMessage {
                 s_id,
                 parent_message_id,
+                ..
             } if parent_message_id.as_deref() == Some(user_message_id) => Some(s_id.clone()),
             _ => None,
         })
@@ -613,6 +654,7 @@ mod tests {
                 ConversationMessage::AgentMessage {
                     s_id: "agent1".to_string(),
                     parent_message_id: Some("user1".to_string()),
+                    content: Some("reply".to_string()),
                 },
                 ConversationMessage::Other,
             ]],
@@ -680,5 +722,58 @@ mod tests {
         let unicode = "é".repeat(31);
         let expected = format!("CLI Question: {}...", "é".repeat(30));
         assert_eq!(conversation_title(&unicode), expected);
+    }
+
+    #[test]
+    fn list_conversations_url_is_correct() {
+        let client = DustClient::new(
+            "https://dust.tt".to_string(),
+            "ws_123".to_string(),
+            DEFAULT_AGENT_ID.to_string(),
+            UserContext::from_env(),
+        )
+        .expect("build client");
+
+        let url = client.url(&format!(
+            "/api/w/{}/assistant/conversations",
+            client.workspace_id
+        ));
+        assert_eq!(url, "https://dust.tt/api/w/ws_123/assistant/conversations");
+    }
+
+    #[test]
+    fn conversations_sorted_newest_first() {
+        use crate::dust::types::ConversationSummary;
+
+        let mut convs = vec![
+            ConversationSummary {
+                s_id: "c1".into(),
+                title: Some("oldest".into()),
+                created: 1000,
+                updated: Some(1000),
+            },
+            ConversationSummary {
+                s_id: "c2".into(),
+                title: Some("newest".into()),
+                created: 3000,
+                updated: Some(3000),
+            },
+            ConversationSummary {
+                s_id: "c3".into(),
+                title: Some("middle".into()),
+                created: 2000,
+                updated: Some(2000),
+            },
+        ];
+
+        convs.sort_by(|a, b| {
+            b.updated
+                .unwrap_or(b.created)
+                .cmp(&a.updated.unwrap_or(a.created))
+        });
+
+        assert_eq!(convs[0].s_id, "c2"); // newest
+        assert_eq!(convs[1].s_id, "c3"); // middle
+        assert_eq!(convs[2].s_id, "c1"); // oldest
     }
 }

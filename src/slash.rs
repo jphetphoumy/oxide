@@ -16,6 +16,11 @@ pub const COMMANDS: &[SlashCommandDef] = &[
         slash_name: "/switch",
         description: "Switch to a different agent",
     },
+    SlashCommandDef {
+        name: "resume",
+        slash_name: "/resume",
+        description: "Resume an existing conversation",
+    },
 ];
 
 pub fn filter_commands(prefix: &str) -> Vec<&'static SlashCommandDef> {
