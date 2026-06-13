@@ -814,6 +814,31 @@ mod tests {
     }
 
     #[test]
+    fn resume_filter_includes_untitled_conversations() {
+        let mut app = App::new("a", "/workspace", None);
+        app.enter_resume_picker();
+        app.set_resume_conversations(vec![
+            ConversationSummary {
+                s_id: "c1".into(),
+                title: None, // untitled
+                created: 1707900000000,
+                updated: None,
+            },
+            ConversationSummary {
+                s_id: "c2".into(),
+                title: Some("Project Brainstorm".into()),
+                created: 1707800000000,
+                updated: None,
+            },
+        ]);
+        app.set_resume_filter("project");
+        let filtered = app.resume_filtered_conversations();
+        assert_eq!(filtered.len(), 2); // both untitled and matching titled conversations
+        assert_eq!(filtered[0].s_id, "c1"); // untitled still shows
+        assert_eq!(filtered[1].s_id, "c2"); // titled match still shows
+    }
+
+    #[test]
     fn resume_picker_selection_wraps() {
         let mut app = App::new("a", "/workspace", None);
         app.enter_resume_picker();
@@ -881,5 +906,29 @@ mod tests {
         app.scroll_up(5);
         app.restore_conversation("conv-123".into(), vec![], None);
         assert_eq!(app.scroll_offset(), 0);
+    }
+
+    #[test]
+    fn restore_conversation_includes_untitled_fallback() {
+        let mut app = App::new("a", "/workspace", None);
+        app.restore_conversation("conv-123".into(), vec![], None);
+        assert_eq!(
+            app.messages()[0].content,
+            "Resumed conversation: (untitled)"
+        );
+    }
+
+    #[test]
+    fn restore_conversation_includes_title_in_message() {
+        let mut app = App::new("a", "/workspace", None);
+        app.restore_conversation(
+            "conv-123".into(),
+            vec![(Role::User, "hello".into())],
+            Some("My Project"),
+        );
+        assert_eq!(
+            app.messages()[1].content,
+            "Resumed conversation: My Project"
+        );
     }
 }

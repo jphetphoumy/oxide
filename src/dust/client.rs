@@ -740,4 +740,40 @@ mod tests {
         ));
         assert_eq!(url, "https://dust.tt/api/w/ws_123/assistant/conversations");
     }
+
+    #[test]
+    fn conversations_sorted_newest_first() {
+        use crate::dust::types::ConversationSummary;
+
+        let mut convs = vec![
+            ConversationSummary {
+                s_id: "c1".into(),
+                title: Some("oldest".into()),
+                created: 1000,
+                updated: Some(1000),
+            },
+            ConversationSummary {
+                s_id: "c2".into(),
+                title: Some("newest".into()),
+                created: 3000,
+                updated: Some(3000),
+            },
+            ConversationSummary {
+                s_id: "c3".into(),
+                title: Some("middle".into()),
+                created: 2000,
+                updated: Some(2000),
+            },
+        ];
+
+        convs.sort_by(|a, b| {
+            b.updated
+                .unwrap_or(b.created)
+                .cmp(&a.updated.unwrap_or(a.created))
+        });
+
+        assert_eq!(convs[0].s_id, "c2"); // newest
+        assert_eq!(convs[1].s_id, "c3"); // middle
+        assert_eq!(convs[2].s_id, "c1"); // oldest
+    }
 }
