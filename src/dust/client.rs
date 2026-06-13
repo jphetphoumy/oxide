@@ -648,12 +648,17 @@ impl DustClient {
         tools: Option<Vec<crate::mcp::McpTool>>,
     ) -> MessageBody {
         if let Some(ref tool_list) = tools {
+            eprintln!("[OXIDE-CLIENT] Including {} tools in message body", tool_list.len());
+            for tool in tool_list {
+                eprintln!("[OXIDE-CLIENT] Tool in body: {}", tool.name);
+            }
             tracing::info!(
                 tool_count = tool_list.len(),
                 tools = ?tool_list.iter().map(|t| &t.name).collect::<Vec<_>>(),
                 "including tools in message body"
             );
         } else {
+            eprintln!("[OXIDE-CLIENT] No tools in message body");
             tracing::info!("no tools in message body");
         }
         MessageBody {

@@ -493,6 +493,10 @@ async fn run_tui() -> io::Result<()> {
                 let conversation_id = app.conversation_id().map(ToOwned::to_owned);
                 let dust_tx = dust_tx.clone();
                 let tools = mcp_manager.lock().await.list_tools();
+                eprintln!("[OXIDE] Tools discovered: {}", tools.len());
+                for tool in &tools {
+                    eprintln!("[OXIDE] Tool: name={}, desc={}", tool.name, tool.description);
+                }
                 tracing::debug!(tools_count = tools.len(), "sending message with tools");
                 for tool in &tools {
                     tracing::debug!(tool_name = %tool.name, "advertising tool to Dust");
