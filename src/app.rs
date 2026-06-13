@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::dust::types::AgentInfo;
+use crate::dust::types::{AgentInfo, ConversationSummary};
 
 #[derive(Debug, Clone)]
 pub struct PickerState {
@@ -11,9 +11,18 @@ pub struct PickerState {
 }
 
 #[derive(Debug, Clone)]
+pub struct ResumePickerState {
+    pub conversations: Vec<ConversationSummary>,
+    pub filter: String,
+    pub selected: usize,
+    pub loading: bool,
+}
+
+#[derive(Debug, Clone)]
 pub enum AppMode {
     Chat,
     Picker(PickerState),
+    ResumePicker(ResumePickerState),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -261,6 +270,103 @@ impl App {
         self.agent_name = agent_name.to_string();
         self.push_system_message(&format!("Switched to {agent_name}"));
         self.mode = AppMode::Chat;
+    }
+
+    pub fn enter_resume_picker(&mut self) {
+        self.mode = AppMode::ResumePicker(ResumePickerState {
+            conversations: Vec::new(),
+            filter: String::new(),
+            selected: 0,
+            loading: true,
+        });
+    }
+
+    pub fn exit_resume_picker(&mut self) {
+        self.mode = AppMode::Chat;
+    }
+
+    pub fn set_resume_conversations(&mut self, conversations: Vec<ConversationSummary>) {
+        if let AppMode::ResumePicker(state) = &mut self.mode {
+            state.conversations = conversations;
+            state.loading = false;
+            state.selected = 0;
+        }
+    }
+
+    pub fn set_resume_filter(&mut self, filter: &str) {
+        if let AppMode::ResumePicker(state) = &mut self.mode {
+            state.filter = filter.to_string();
+            state.selected = 0;
+        }
+    }
+
+    pub fn resume_filtered_conversations(&self) -> Vec<&ConversationSummary> {
+        if let AppMode::ResumePicker(state) = &self.mode {
+            if state.filter.is_empty() {
+                state.conversations.iter().collect()
+            } else {
+                let filter = state.filter.to_lowercase();
+                state
+                    .conversations
+                    .iter()
+                    .filter(|c| {
+                        c.title
+                            .as_ref()
+                            .is_some_and(|t| t.to_lowercase().contains(&filter))
+                    })
+                    .collect()
+            }
+        } else {
+            Vec::new()
+        }
+    }
+
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn resume_picker_selected(&self) -> usize {
+        if let AppMode::ResumePicker(state) = &self.mode {
+            state.selected
+        } else {
+            0
+        }
+    }
+
+    pub fn resume_picker_move_selection(&mut self, delta: i32) {
+        if let AppMode::ResumePicker(state) = &mut self.mode {
+            let count = if state.filter.is_empty() {
+                state.conversations.len()
+            } else {
+                let filter = state.filter.to_lowercase();
+                state
+                    .conversations
+                    .iter()
+                    .filter(|c| {
+                        c.title
+                            .as_ref()
+                            .is_some_and(|t| t.to_lowercase().contains(&filter))
+                    })
+                    .count()
+            };
+            if count == 0 {
+                return;
+            }
+            if delta > 0 {
+                state.selected = (state.selected + 1) % count;
+            } else {
+                state.selected = state.selected.checked_sub(1).unwrap_or(count - 1);
+            }
+        }
+    }
+
+    pub fn restore_conversation(&mut self, conversation_id: String, messages: Vec<(Role, String)>) {
+        self.conversation_id = Some(conversation_id);
+        self.messages.clear();
+        for (role, content) in messages {
+            self.messages.push(Message { role, content });
+        }
+        self.is_streaming = false;
+        self.scroll_offset = 0;
+        self.mode = AppMode::Chat;
+        self.push_system_message("Resumed conversation");
     }
 
     pub fn new_conversation(&mut self) {
@@ -639,5 +745,142 @@ mod tests {
         assert_eq!(app.conversation_id(), None);
         assert_eq!(app.scroll_offset(), 0);
         assert!(app.messages()[0].content.contains("my-agent"));
+    }
+
+    #[test]
+    fn enter_resume_picker_switches_mode() {
+        let mut app = App::new("a", "/workspace", None);
+        app.enter_resume_picker();
+        assert!(matches!(app.mode(), AppMode::ResumePicker(_)));
+    }
+
+    #[test]
+    fn set_resume_conversations_updates_state() {
+        let mut app = App::new("a", "/workspace", None);
+        app.enter_resume_picker();
+        let conversations = vec![
+            ConversationSummary {
+                s_id: "c1".into(),
+                title: Some("First chat".into()),
+                created: 1707900000000,
+                updated: Some(1707950000000),
+            },
+            ConversationSummary {
+                s_id: "c2".into(),
+                title: None,
+                created: 1707800000000,
+                updated: None,
+            },
+        ];
+        app.set_resume_conversations(conversations);
+        if let AppMode::ResumePicker(state) = app.mode() {
+            assert_eq!(state.conversations.len(), 2);
+            assert!(!state.loading);
+        } else {
+            panic!("expected ResumePicker mode");
+        }
+    }
+
+    #[test]
+    fn resume_filtered_conversations_narrows_results() {
+        let mut app = App::new("a", "/workspace", None);
+        app.enter_resume_picker();
+        app.set_resume_conversations(vec![
+            ConversationSummary {
+                s_id: "c1".into(),
+                title: Some("Project brainstorm".into()),
+                created: 1707900000000,
+                updated: None,
+            },
+            ConversationSummary {
+                s_id: "c2".into(),
+                title: Some("Bug discussion".into()),
+                created: 1707800000000,
+                updated: None,
+            },
+        ]);
+        app.set_resume_filter("project");
+        let filtered = app.resume_filtered_conversations();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].title, Some("Project brainstorm".into()));
+    }
+
+    #[test]
+    fn resume_filter_is_case_insensitive() {
+        let mut app = App::new("a", "/workspace", None);
+        app.enter_resume_picker();
+        app.set_resume_conversations(vec![ConversationSummary {
+            s_id: "c1".into(),
+            title: Some("Project Brainstorm".into()),
+            created: 1707900000000,
+            updated: None,
+        }]);
+        app.set_resume_filter("project");
+        assert_eq!(app.resume_filtered_conversations().len(), 1);
+    }
+
+    #[test]
+    fn resume_picker_selection_wraps() {
+        let mut app = App::new("a", "/workspace", None);
+        app.enter_resume_picker();
+        app.set_resume_conversations(vec![
+            ConversationSummary {
+                s_id: "c1".into(),
+                title: Some("first".into()),
+                created: 1707900000000,
+                updated: None,
+            },
+            ConversationSummary {
+                s_id: "c2".into(),
+                title: Some("second".into()),
+                created: 1707800000000,
+                updated: None,
+            },
+        ]);
+        app.resume_picker_move_selection(1);
+        assert_eq!(app.resume_picker_selected(), 1);
+        app.resume_picker_move_selection(1); // wraps to 0
+        assert_eq!(app.resume_picker_selected(), 0);
+    }
+
+    #[test]
+    fn restore_conversation_sets_conversation_id() {
+        let mut app = App::new("a", "/workspace", None);
+        app.restore_conversation("conv-123".into(), vec![]);
+        assert_eq!(app.conversation_id(), Some("conv-123"));
+    }
+
+    #[test]
+    fn restore_conversation_populates_messages() {
+        let mut app = App::new("a", "/workspace", None);
+        app.restore_conversation(
+            "conv-123".into(),
+            vec![
+                (Role::User, "Hello".into()),
+                (Role::Agent("agent".into()), "Hi there".into()),
+            ],
+        );
+        assert_eq!(app.messages().len(), 3); // 2 restored + 1 system message
+        assert_eq!(app.messages()[0].role, Role::User);
+        assert_eq!(app.messages()[0].content, "Hello");
+        assert_eq!(app.messages()[1].role, Role::Agent("agent".into()));
+    }
+
+    #[test]
+    fn restore_conversation_exits_picker_mode() {
+        let mut app = App::new("a", "/workspace", None);
+        app.enter_resume_picker();
+        assert!(matches!(app.mode(), AppMode::ResumePicker(_)));
+        app.restore_conversation("conv-123".into(), vec![]);
+        assert!(matches!(app.mode(), AppMode::Chat));
+    }
+
+    #[test]
+    fn restore_conversation_resets_scroll() {
+        let mut app = App::new("a", "/workspace", None);
+        app.enter_resume_picker();
+        app.scroll_up(5);
+        app.restore_conversation("conv-123".into(), vec![]);
+        assert_eq!(app.scroll_offset(), 0);
     }
 }

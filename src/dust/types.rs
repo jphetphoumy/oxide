@@ -73,6 +73,23 @@ pub struct Conversation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ConversationSummary {
+    #[serde(rename = "sId")]
+    pub s_id: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    pub created: i64,
+    #[serde(default)]
+    pub updated: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListConversationsResponse {
+    pub conversations: Vec<ConversationSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "type")]
 pub enum ConversationMessage {
     #[serde(rename = "agent_message")]
@@ -82,6 +99,8 @@ pub enum ConversationMessage {
         #[serde(rename = "parentMessageId")]
         parent_message_id: Option<String>,
     },
+    #[serde(rename = "user_message")]
+    UserMessage { content: String },
     #[serde(other)]
     Other,
 }
@@ -272,5 +291,98 @@ mod tests {
         let json = r#"{"agentConfigurations": []}"#;
         let response = serde_json::from_str::<ListAgentsResponse>(json).expect("deserialize");
         assert!(response.agent_configurations.is_empty());
+    }
+
+    #[test]
+    fn conversation_summary_deserializes_from_api_response() {
+        let json = r#"{
+            "sId": "conv_123",
+            "title": "Project brainstorm",
+            "created": 1707900000000,
+            "updated": 1707950000000
+        }"#;
+
+        let summary = serde_json::from_str::<ConversationSummary>(json).expect("deserialize");
+        assert_eq!(summary.s_id, "conv_123");
+        assert_eq!(summary.title, Some("Project brainstorm".to_string()));
+        assert_eq!(summary.created, 1707900000000);
+        assert_eq!(summary.updated, Some(1707950000000));
+    }
+
+    #[test]
+    fn conversation_summary_handles_missing_title() {
+        let json = r#"{
+            "sId": "conv_456",
+            "created": 1707900000000
+        }"#;
+
+        let summary = serde_json::from_str::<ConversationSummary>(json).expect("deserialize");
+        assert_eq!(summary.s_id, "conv_456");
+        assert_eq!(summary.title, None);
+        assert_eq!(summary.created, 1707900000000);
+        assert_eq!(summary.updated, None);
+    }
+
+    #[test]
+    fn list_conversations_response_deserializes_array() {
+        let json = r#"{
+            "conversations": [
+                {
+                    "sId": "c1",
+                    "title": "First chat",
+                    "created": 1707900000000,
+                    "updated": 1707950000000
+                },
+                {
+                    "sId": "c2",
+                    "title": null,
+                    "created": 1707800000000
+                }
+            ]
+        }"#;
+
+        let response =
+            serde_json::from_str::<ListConversationsResponse>(json).expect("deserialize");
+        assert_eq!(response.conversations.len(), 2);
+        assert_eq!(response.conversations[0].s_id, "c1");
+        assert_eq!(
+            response.conversations[0].title,
+            Some("First chat".to_string())
+        );
+        assert_eq!(response.conversations[1].s_id, "c2");
+        assert_eq!(response.conversations[1].title, None);
+    }
+
+    #[test]
+    fn conversation_message_user_message_deserializes() {
+        let json = r#"{
+            "type": "user_message",
+            "content": "Hello, assistant"
+        }"#;
+
+        let msg = serde_json::from_str::<ConversationMessage>(json).expect("deserialize");
+        match msg {
+            ConversationMessage::UserMessage { content } => {
+                assert_eq!(content, "Hello, assistant");
+            }
+            _ => panic!("Expected UserMessage variant"),
+        }
+    }
+
+    #[test]
+    fn conversation_message_agent_message_still_deserializes() {
+        let json = r#"{
+            "type": "agent_message",
+            "sId": "msg_123",
+            "parentMessageId": null
+        }"#;
+
+        let msg = serde_json::from_str::<ConversationMessage>(json).expect("deserialize");
+        match msg {
+            ConversationMessage::AgentMessage { s_id, .. } => {
+                assert_eq!(s_id, "msg_123");
+            }
+            _ => panic!("Expected AgentMessage variant"),
+        }
     }
 }

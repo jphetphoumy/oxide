@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oxide — Implement /resume Slash Command</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-dim: #1f6feb33;
+      --green: #3fb950;
+      --green-dim: #23863533;
+      --yellow: #d29922;
+      --yellow-dim: #d2992233;
+      --red: #f85149;
+      --red-dim: #f8514933;
+      --orange: #db6d28;
+      --purple: #bc8cff;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    header .subtitle {
+      color: var(--text-muted);
+      margin-top: 0.5rem;
+      font-size: 0.9rem;
+    }
+
+    section {
+      margin-bottom: 2rem;
+    }
+
+    h2 {
+      color: var(--accent);
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+      border-left: 3px solid var(--accent);
+      padding-left: 0.75rem;
+    }
+
+    h3 {
+      color: var(--text);
+      font-size: 0.95rem;
+      margin: 1.5rem 0 0.75rem 0;
+      font-weight: 600;
+    }
+
+    p, li {
+      color: var(--text);
+      margin-bottom: 0.75rem;
+    }
+
+    ul, ol {
+      margin-left: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    li {
+      margin-bottom: 0.5rem;
+    }
+
+    code {
+      background: var(--surface);
+      color: var(--purple);
+      padding: 0.2rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.9em;
+    }
+
+    pre {
+      background: var(--surface);
+      color: var(--text);
+      padding: 1rem;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+
+    pre code {
+      background: none;
+      color: inherit;
+      padding: 0;
+    }
+
+    .status {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 3px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-right: 0.5rem;
+    }
+
+    .status.complete { background: var(--green-dim); color: var(--green); }
+    .status.in-progress { background: var(--yellow-dim); color: var(--yellow); }
+    .status.blocked { background: var(--red-dim); color: var(--red); }
+    .status.todo { background: var(--accent-dim); color: var(--accent); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      background: var(--surface);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    tr:hover {
+      background: var(--surface);
+    }
+
+    .box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1.5rem;
+      margin: 1rem 0;
+    }
+
+    .file-path {
+      color: var(--orange);
+    }
+
+    .highlight {
+      background: var(--yellow-dim);
+      color: var(--yellow);
+      padding: 0.1rem 0.3rem;
+      border-radius: 2px;
+    }
+
+    .note {
+      background: var(--accent-dim);
+      border-left: 3px solid var(--accent);
+      padding: 0.75rem 1rem;
+      border-radius: 0 4px 4px 0;
+      margin: 1rem 0;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Oxide — Implement /resume Slash Command</h1>
+  <div class="subtitle">Reopen and continue an existing Dust conversation from the TUI — Issue #9</div>
+</header>
+
+<section>
+  <h2>Overview</h2>
+  <p>Add a <code>/resume</code> slash command that opens a picker overlay listing the user's past Dust conversations. The user selects one, the full history is fetched and restored into the chat view, and future messages continue in that thread.</p>
+
+  <div class="box">
+    <h3>User Flow</h3>
+    <ul>
+      <li>User types <code>/resume</code> and presses Enter</li>
+      <li>A centered popup overlay appears (60% × 60%, exact pattern as agent picker from <code>/switch</code>)</li>
+      <li>Popup title: <strong>" Resume Conversation "</strong></li>
+      <li>While fetching, shows: "Fetching conversations..." (yellow)</li>
+      <li>Once loaded, past conversations are listed in reverse chrono order (newest first)</li>
+      <li>Row format per conversation: <code>{title or "(untitled)"}  {relative date}</code> — e.g. "Project brainstorm  2 days ago"</li>
+      <li>User can type to filter by title (case-insensitive), and navigate with arrow keys (↑↓)</li>
+      <li>Pressing Enter selects conversation, fetches full history, and closes the popup</li>
+      <li>A system message appears: <span class="highlight">"Resumed conversation: {title}"</span></li>
+      <li>New messages sent continue in the restored thread</li>
+      <li>Pressing Esc cancels and returns to Chat mode</li>
+      <li>Footer hints: " ↑↓ navigate  Enter select  Esc cancel" (same as agent picker)</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2>API Research</h2>
+  <p>Two Dust API endpoints are needed. Both are already supported by the existing auth token.</p>
+
+  <table>
+    <tr>
+      <th>Method</th>
+      <th>Path</th>
+      <th>Used for</th>
+    </tr>
+    <tr>
+      <td><code>GET</code></td>
+      <td><code>/api/w/{wId}/assistant/conversations</code></td>
+      <td>List past conversations (metadata only — sId, title, created, updated)</td>
+    </tr>
+    <tr>
+      <td><code>GET</code></td>
+      <td><code>/api/v1/w/{wId}/assistant/conversations/{cId}</code></td>
+      <td>Fetch full conversation content (already used internally for agent reply polling)</td>
+    </tr>
+  </table>
+
+  <div class="note">
+    <strong>API endpoint:</strong> The list endpoint is under <code>/api/w/</code> (private API), not <code>/api/v1/w/</code>. The response shape is
+    <code>{ conversations: ConversationWithoutContent[] }</code> where each item has
+    <code>sId</code>, <code>title</code> (nullable), <code>created</code> (unix ms), <code>updated</code> (unix ms).
+  </div>
+
+  <div class="note">
+    <strong>Relative date formatting:</strong> When rendering each conversation, compute a human-readable relative date: "2 days ago", "1 hour ago", "just now", etc. from <code>created</code> (unix ms). A simple helper function in <code>ui/picker.rs</code> (or a module util) can do this — check current time with <code>std::time::SystemTime::now().duration_since(UNIX_EPOCH)</code> and diff against <code>created</code>.
+  </div>
+</section>
+
+<section>
+  <h2>Design Decisions</h2>
+  <ul>
+    <li><strong>Centered popup overlay (60% × 60%):</strong> Identical to the agent picker from <code>/switch</code>. Uses <code>Clear</code> widget, centered layout, filter input at top, list in middle, footer hints at bottom. See <code>src/ui/picker.rs::render_picker()</code> as the template.</li>
+    <li><strong>Reuse PickerState pattern:</strong> A new <code>AppMode::ResumePicker(ResumePickerState)</code> mirrors <code>AppMode::Picker(PickerState)</code> — same fields (list, filter, selected, loading), same navigation semantics, same `PickerAction` enum dispatch.</li>
+    <li><strong>Two-phase fetching:</strong> Phase 1 lists conversations (metadata only, fast). Phase 2 fetches full history only after user selects one (avoids loading all content upfront; same pattern as agent filtering).</li>
+    <li><strong>History reconstruction:</strong> The existing <code>ConversationMessage</code> enum only captures agent messages. A <code>UserMessage { content: String }</code> variant is added so both sides of the conversation can be reconstructed from the <code>get_conversation()</code> response.</li>
+    <li><strong>Reverse chronological order:</strong> Conversations list is sorted newest first (most recently updated at top) so users find active threads easily.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Implementation Plan</h2>
+
+  <h3>Step 1 — Extend types (src/dust/types.rs)</h3>
+  <table>
+    <tr><th>Change</th><th>Status</th></tr>
+    <tr>
+      <td>Add <code>ConversationSummary</code> struct: <code>s_id: String</code>, <code>title: Option&lt;String&gt;</code>, <code>created: i64</code>, <code>updated: Option&lt;i64&gt;</code></td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Add <code>ListConversationsResponse</code> struct wrapping <code>conversations: Vec&lt;ConversationSummary&gt;</code></td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Add <code>UserMessage { content: String }</code> variant to <code>ConversationMessage</code> enum (between <code>AgentMessage</code> and <code>#[serde(other)] Other</code>)</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Add unit tests for <code>ConversationSummary</code> deserialization and updated <code>ConversationMessage</code></td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+  </table>
+
+  <h3>Step 2 — Add API methods (src/dust/client.rs)</h3>
+  <table>
+    <tr><th>Change</th><th>Status</th></tr>
+    <tr>
+      <td>Add <code>pub async fn list_conversations(&amp;self) -&gt; Result&lt;Vec&lt;ConversationSummary&gt;&gt;</code> calling <code>GET /api/w/{workspace}/assistant/conversations</code></td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Make <code>get_conversation()</code> public (<code>pub async fn</code>) — it already fetches the content needed for history restoration</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+  </table>
+
+  <pre><code>pub async fn list_conversations(&amp;self) -&gt; Result&lt;Vec&lt;ConversationSummary&gt;&gt; {
+    let url = format!("{}/api/w/{}/assistant/conversations", self.base_url, self.workspace_id);
+    let response = self.http.get(&amp;url).headers(self.headers()).send().await?;
+    let body: ListConversationsResponse = response.json().await?;
+    Ok(body.conversations)
+}</code></pre>
+
+  <h3>Step 3 — Add new DustEvent variants (src/main.rs or shared event type)</h3>
+  <table>
+    <tr><th>Change</th><th>Status</th></tr>
+    <tr>
+      <td>Add <code>DustEvent::ConversationsListed(Vec&lt;ConversationSummary&gt;)</code></td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Add <code>DustEvent::ConversationLoaded { conversation_id: String, messages: Vec&lt;(Role, String)&gt; }</code></td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+  </table>
+
+  <h3>Step 4 — Add ResumePicker app state (src/app.rs)</h3>
+  <table>
+    <tr><th>Change</th><th>Status</th></tr>
+    <tr>
+      <td>Add <code>ResumePickerState</code> struct: <code>conversations: Vec&lt;ConversationSummary&gt;</code>, <code>filter: String</code>, <code>selected: usize</code>, <code>loading: bool</code></td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Add <code>AppMode::ResumePicker(ResumePickerState)</code> variant</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Add <code>enter_resume_picker()</code> — sets mode with <code>loading: true</code>, empty state</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Add <code>exit_resume_picker()</code> — returns to Chat mode</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Add <code>set_resume_conversations(convs)</code> — populates list, sets <code>loading: false</code>, resets <code>selected = 0</code></td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Add <code>resume_filtered_conversations()</code> — filters by title (case-insensitive contains)</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Add <code>resume_picker_move_selection(delta: i32)</code> — wrapping navigation</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Add <code>restore_conversation(conversation_id: String, messages: Vec&lt;(Role, String)&gt;)</code> — sets <code>self.conversation_id</code>, populates <code>self.messages</code>, resets scroll and streaming, exits picker mode, pushes system confirmation message</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Add unit tests for all new methods (filtering, selection wrap, restore)</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+  </table>
+
+  <h3>Step 5 — Register command (src/slash.rs)</h3>
+  <table>
+    <tr><th>Change</th><th>Status</th></tr>
+    <tr>
+      <td>Add <code>SlashCommandDef { name: "resume", slash_name: "/resume", description: "Resume an existing conversation" }</code> to <code>COMMANDS</code></td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+  </table>
+
+  <h3>Step 6 — Add enum variant and parse (src/handler.rs)</h3>
+  <table>
+    <tr><th>Change</th><th>Status</th></tr>
+    <tr>
+      <td>Add <code>Resume</code> variant to <code>SlashCommand</code> enum</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Add <code>"/resume" =&gt; Some(SlashCommand::Resume)</code> arm to <code>parse_slash_command()</code></td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Add unit test for <code>parse_slash_command("/resume")</code></td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+  </table>
+
+  <h3>Step 7 — Wire event loop (src/main.rs)</h3>
+  <table>
+    <tr><th>Change</th><th>Status</th></tr>
+    <tr>
+      <td>Handle <code>SlashCommand::Resume</code>: call <code>app.enter_resume_picker()</code>, spawn <code>client.list_conversations()</code> task that sends <code>DustEvent::ConversationsListed</code></td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Handle <code>DustEvent::ConversationsListed(convs)</code>: call <code>app.set_resume_conversations(convs)</code></td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Handle <code>DustEvent::ConversationLoaded { conversation_id, messages }</code>: call <code>app.restore_conversation(...)</code></td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>In <code>PickerAction</code> dispatch: add <code>AppMode::ResumePicker</code> branch — <code>Type/Backspace</code> update filter, <code>MoveUp/MoveDown</code> move selection, <code>Select</code> spawns <code>get_conversation()</code> task, <code>Cancel</code> exits</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+  </table>
+
+  <h3>Step 8 — Add resume picker UI (src/ui/picker.rs)</h3>
+  <table>
+    <tr><th>Change</th><th>Status</th></tr>
+    <tr>
+      <td>Add <code>render_resume_picker(f, area, state: &amp;ResumePickerState, filtered: &amp;[&amp;ConversationSummary])</code> following the exact structure of <code>render_picker()</code> (the agent picker). Centered popup 60% × 60%, with <code>Clear</code> widget, filter input, list, and footer hints.</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Popup title: <strong>" Resume Conversation "</strong> (cyan border, same style as agent picker)</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Filter input display: <code> / {filter}</code> or <code> / Type to filter...</code> (same as agent picker)</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Row format per conversation: <code>  {title or "(untitled)"}  {relative_date}</code> (e.g., "  Project brainstorm  2 days ago"). Bold title (White), muted relative date (DarkGray). Compute relative time from <code>created</code> unix timestamp (ms) vs current time.</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Loading state: <code>  Fetching conversations...</code> (yellow text)</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Empty state: <code>  No conversations match</code> (dark gray text)</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+    <tr>
+      <td>Footer hints: <code> ↑↓ navigate  Enter select  Esc cancel</code> (dark gray text, same as agent picker)</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+  </table>
+
+  <h3>Step 9 — Render in layout (src/ui/layout.rs)</h3>
+  <table>
+    <tr><th>Change</th><th>Status</th></tr>
+    <tr>
+      <td>In the overlay rendering section (where agent picker is rendered), add a new <code>match</code> arm for <code>AppMode::ResumePicker(state)</code>. Call <code>render_resume_picker(f, area, state, app.resume_filtered_conversations())</code>. This goes at the same level as the existing <code>AppMode::Picker(...) =&gt; render_picker(...)</code>.</td>
+      <td><span class="status todo">TODO</span></td>
+    </tr>
+  </table>
+</section>
+
+<section>
+  <h2>Files to Modify</h2>
+  <pre><code>src/dust/types.rs    — ConversationSummary, ListConversationsResponse, UserMessage variant
+src/dust/client.rs   — list_conversations(), make get_conversation() public
+src/dust/mod.rs      — re-export new types
+src/app.rs           — ResumePickerState, AppMode::ResumePicker, picker + restore methods
+src/slash.rs         — register /resume command
+src/handler.rs       — SlashCommand::Resume variant and parse arm
+src/main.rs          — slash dispatch, DustEvent handling, PickerAction routing
+src/ui/picker.rs     — render_resume_picker()
+src/ui/layout.rs     — render ResumePicker mode overlay</code></pre>
+</section>
+
+<section>
+  <h2>Testing Strategy</h2>
+
+  <h3>Unit Tests — Write First (TDD)</h3>
+  <ul>
+    <li><span class="file-path">src/dust/types.rs</span> — <code>ConversationSummary</code> deserializes from API JSON</li>
+    <li><span class="file-path">src/dust/types.rs</span> — <code>ConversationMessage::UserMessage</code> deserializes <code>content</code> field</li>
+    <li><span class="file-path">src/dust/types.rs</span> — <code>ListConversationsResponse</code> deserializes array</li>
+    <li><span class="file-path">src/handler.rs</span> — <code>parse_slash_command("/resume")</code> returns <code>Some(SlashCommand::Resume)</code></li>
+    <li><span class="file-path">src/app.rs</span> — <code>enter_resume_picker()</code> sets <code>loading: true</code> and mode to <code>ResumePicker</code></li>
+    <li><span class="file-path">src/app.rs</span> — <code>set_resume_conversations()</code> populates list and sets <code>loading: false</code></li>
+    <li><span class="file-path">src/app.rs</span> — <code>resume_filtered_conversations()</code> filters case-insensitively by title</li>
+    <li><span class="file-path">src/app.rs</span> — <code>resume_picker_move_selection()</code> wraps at list boundaries</li>
+    <li><span class="file-path">src/app.rs</span> — <code>restore_conversation()</code> sets <code>conversation_id</code>, populates <code>messages</code>, mode returns to <code>Chat</code></li>
+    <li><span class="file-path">src/app.rs</span> — <code>restore_conversation()</code> pushes a system confirmation message</li>
+  </ul>
+
+  <h3>Manual TUI Test</h3>
+  <pre><code>tmux new-session -d -s oxide-test -x 120 -y 30 "cargo run"
+sleep 3
+
+# Open resume picker
+tmux send-keys -t oxide-test "/resume" Enter
+sleep 1
+tmux capture-pane -t oxide-test -p
+# Should show the resume picker overlay with loading or conversation list
+
+# Navigate and select
+tmux send-keys -t oxide-test "Down"
+sleep 0.3
+tmux send-keys -t oxide-test Enter
+sleep 2
+tmux capture-pane -t oxide-test -p
+# Should show restored conversation history with system message
+
+tmux kill-session -t oxide-test</code></pre>
+</section>
+
+<section>
+  <h2>Deliverables</h2>
+  <ul>
+    <li>All tests pass — <code>cargo test</code></li>
+    <li>No clippy warnings — <code>cargo clippy -- -W clippy::all -W clippy::pedantic -W clippy::nursery</code></li>
+    <li>Code formatted — <code>cargo fmt</code></li>
+    <li>Manual TUI testing confirms picker, selection, and history restore work end-to-end</li>
+    <li>PR with conventional commit: <code>feat(slash): add /resume to reopen an existing conversation</code></li>
+  </ul>
+</section>
+
+</body>
+</html>
