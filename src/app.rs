@@ -310,9 +310,10 @@ impl App {
                     .conversations
                     .iter()
                     .filter(|c| {
-                        c.title
-                            .as_ref()
-                            .is_some_and(|t| t.to_lowercase().contains(&filter))
+                        c.title.is_none()
+                            || c.title
+                                .as_ref()
+                                .is_some_and(|t| t.to_lowercase().contains(&filter))
                     })
                     .collect()
             }
@@ -331,24 +332,11 @@ impl App {
     }
 
     pub fn resume_picker_move_selection(&mut self, delta: i32) {
+        let count = self.resume_filtered_conversations().len();
+        if count == 0 {
+            return;
+        }
         if let AppMode::ResumePicker(state) = &mut self.mode {
-            let count = if state.filter.is_empty() {
-                state.conversations.len()
-            } else {
-                let filter = state.filter.to_lowercase();
-                state
-                    .conversations
-                    .iter()
-                    .filter(|c| {
-                        c.title
-                            .as_ref()
-                            .is_some_and(|t| t.to_lowercase().contains(&filter))
-                    })
-                    .count()
-            };
-            if count == 0 {
-                return;
-            }
             if delta > 0 {
                 state.selected = (state.selected + 1) % count;
             } else {
@@ -357,7 +345,12 @@ impl App {
         }
     }
 
-    pub fn restore_conversation(&mut self, conversation_id: String, messages: Vec<(Role, String)>) {
+    pub fn restore_conversation(
+        &mut self,
+        conversation_id: String,
+        messages: Vec<(Role, String)>,
+        title: Option<&str>,
+    ) {
         self.conversation_id = Some(conversation_id);
         self.messages.clear();
         for (role, content) in messages {
@@ -366,7 +359,8 @@ impl App {
         self.is_streaming = false;
         self.scroll_offset = 0;
         self.mode = AppMode::Chat;
-        self.push_system_message("Resumed conversation");
+        let title_str = title.unwrap_or("(untitled)");
+        self.push_system_message(&format!("Resumed conversation: {title_str}"));
     }
 
     pub fn new_conversation(&mut self) {
@@ -846,7 +840,7 @@ mod tests {
     #[test]
     fn restore_conversation_sets_conversation_id() {
         let mut app = App::new("a", "/workspace", None);
-        app.restore_conversation("conv-123".into(), vec![]);
+        app.restore_conversation("conv-123".into(), vec![], None);
         assert_eq!(app.conversation_id(), Some("conv-123"));
     }
 
@@ -859,11 +853,16 @@ mod tests {
                 (Role::User, "Hello".into()),
                 (Role::Agent("agent".into()), "Hi there".into()),
             ],
+            Some("Test Conversation"),
         );
         assert_eq!(app.messages().len(), 3); // 2 restored + 1 system message
         assert_eq!(app.messages()[0].role, Role::User);
         assert_eq!(app.messages()[0].content, "Hello");
         assert_eq!(app.messages()[1].role, Role::Agent("agent".into()));
+        assert_eq!(
+            app.messages()[2].content,
+            "Resumed conversation: Test Conversation"
+        );
     }
 
     #[test]
@@ -871,7 +870,7 @@ mod tests {
         let mut app = App::new("a", "/workspace", None);
         app.enter_resume_picker();
         assert!(matches!(app.mode(), AppMode::ResumePicker(_)));
-        app.restore_conversation("conv-123".into(), vec![]);
+        app.restore_conversation("conv-123".into(), vec![], None);
         assert!(matches!(app.mode(), AppMode::Chat));
     }
 
@@ -880,7 +879,7 @@ mod tests {
         let mut app = App::new("a", "/workspace", None);
         app.enter_resume_picker();
         app.scroll_up(5);
-        app.restore_conversation("conv-123".into(), vec![]);
+        app.restore_conversation("conv-123".into(), vec![], None);
         assert_eq!(app.scroll_offset(), 0);
     }
 }

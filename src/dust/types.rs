@@ -98,6 +98,8 @@ pub enum ConversationMessage {
         s_id: String,
         #[serde(rename = "parentMessageId")]
         parent_message_id: Option<String>,
+        #[serde(default)]
+        content: Option<String>,
     },
     #[serde(rename = "user_message")]
     UserMessage { content: String },

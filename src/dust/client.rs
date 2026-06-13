@@ -48,6 +48,7 @@ pub enum DustEvent {
     ConversationsListed(Vec<ConversationSummary>),
     ConversationLoaded {
         conversation_id: String,
+        title: Option<String>,
         messages: Vec<(String, String)>, // (role, content) where role is "user" | "agent" | "system"
     },
 }
@@ -172,7 +173,13 @@ impl DustClient {
             .await
             .context("failed to decode Dust conversations list response")?;
 
-        Ok(body.conversations)
+        let mut conversations = body.conversations;
+        conversations.sort_by(|a, b| {
+            b.updated
+                .unwrap_or(b.created)
+                .cmp(&a.updated.unwrap_or(a.created))
+        });
+        Ok(conversations)
     }
 
     pub async fn create_conversation(
@@ -593,6 +600,7 @@ fn find_agent_message(conversation: &Conversation, user_message_id: &str) -> Opt
             ConversationMessage::AgentMessage {
                 s_id,
                 parent_message_id,
+                ..
             } if parent_message_id.as_deref() == Some(user_message_id) => Some(s_id.clone()),
             _ => None,
         })
@@ -646,6 +654,7 @@ mod tests {
                 ConversationMessage::AgentMessage {
                     s_id: "agent1".to_string(),
                     parent_message_id: Some("user1".to_string()),
+                    content: Some("reply".to_string()),
                 },
                 ConversationMessage::Other,
             ]],

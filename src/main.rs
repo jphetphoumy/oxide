@@ -173,6 +173,7 @@ async fn run_tui() -> io::Result<()> {
                                         let selected = app.resume_picker_selected();
                                         if let Some(conv) = filtered.get(selected) {
                                             let conversation_id = conv.s_id.clone();
+                                            let title = conv.title.clone();
                                             if let Some(c) = client.clone() {
                                                 let tx = dust_tx.clone();
                                                 tokio::spawn(async move {
@@ -187,8 +188,8 @@ async fn run_tui() -> io::Result<()> {
                                                                         crate::dust::types::ConversationMessage::UserMessage { content } => {
                                                                             Some(("user".to_string(), content.clone()))
                                                                         }
-                                                                        crate::dust::types::ConversationMessage::AgentMessage { .. } => {
-                                                                            None
+                                                                        crate::dust::types::ConversationMessage::AgentMessage { content, .. } => {
+                                                                            content.as_ref().map(|c| ("agent".to_string(), c.clone()))
                                                                         }
                                                                         crate::dust::types::ConversationMessage::Other => None,
                                                                     }
@@ -196,6 +197,7 @@ async fn run_tui() -> io::Result<()> {
                                                                 .collect();
                                                             let _ = tx.send(DustEvent::ConversationLoaded {
                                                                 conversation_id,
+                                                                title,
                                                                 messages,
                                                             });
                                                         }
@@ -295,7 +297,11 @@ async fn run_tui() -> io::Result<()> {
                         DustEvent::ConversationsListed(conversations) => {
                             app.set_resume_conversations(conversations);
                         }
-                        DustEvent::ConversationLoaded { conversation_id, messages } => {
+                        DustEvent::ConversationLoaded {
+                            conversation_id,
+                            title,
+                            messages,
+                        } => {
                             let role_messages: Vec<_> = messages
                                 .into_iter()
                                 .map(|(role_str, content)| {
@@ -307,7 +313,7 @@ async fn run_tui() -> io::Result<()> {
                                     (role, content)
                                 })
                                 .collect();
-                            app.restore_conversation(conversation_id, role_messages);
+                            app.restore_conversation(conversation_id, role_messages, title.as_deref());
                         }
                         _ => {}
                     }
@@ -343,6 +349,7 @@ async fn run_tui() -> io::Result<()> {
                 }
                 DustEvent::ConversationLoaded {
                     conversation_id,
+                    title,
                     messages,
                 } => {
                     let role_messages: Vec<_> = messages
@@ -356,7 +363,7 @@ async fn run_tui() -> io::Result<()> {
                             (role, content)
                         })
                         .collect();
-                    app.restore_conversation(conversation_id, role_messages);
+                    app.restore_conversation(conversation_id, role_messages, title.as_deref());
                 }
                 _ => {}
             }
