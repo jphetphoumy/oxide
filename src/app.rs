@@ -20,8 +20,18 @@ pub struct ResumePickerState {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_field_names)]
+pub struct McpApproveInfo {
+    pub action_id: String,
+    pub conversation_id: String,
+    pub message_id: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct ToolApprovalState {
     pub tool_call: ToolCall,
+    /// Present when this approval is for an MCP tool — on approve, call `validate_action`.
+    pub mcp_approve: Option<McpApproveInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -78,7 +88,7 @@ impl App {
         }
     }
 
-    pub fn set_auto_approve(&mut self, auto_approve: bool) {
+    pub const fn set_auto_approve(&mut self, auto_approve: bool) {
         self.auto_approve_tools = auto_approve;
     }
 
@@ -402,14 +412,33 @@ impl App {
     }
 
     pub fn enter_tool_approval(&mut self, tool_call: ToolCall) {
-        self.mode = AppMode::ToolApproval(ToolApprovalState { tool_call });
+        self.mode = AppMode::ToolApproval(ToolApprovalState {
+            tool_call,
+            mcp_approve: None,
+        });
+    }
+
+    pub fn enter_mcp_tool_approval(&mut self, tool_call: ToolCall, mcp_approve: McpApproveInfo) {
+        self.mode = AppMode::ToolApproval(ToolApprovalState {
+            tool_call,
+            mcp_approve: Some(mcp_approve),
+        });
     }
 
     pub fn exit_tool_approval(&mut self) {
         self.mode = AppMode::Chat;
     }
 
-    pub fn current_tool_call(&self) -> Option<&ToolCall> {
+    pub const fn current_tool_approval_state(&self) -> Option<&ToolApprovalState> {
+        if let AppMode::ToolApproval(state) = &self.mode {
+            Some(state)
+        } else {
+            None
+        }
+    }
+
+    #[allow(dead_code)]
+    pub const fn current_tool_call(&self) -> Option<&ToolCall> {
         if let AppMode::ToolApproval(state) = &self.mode {
             Some(&state.tool_call)
         } else {

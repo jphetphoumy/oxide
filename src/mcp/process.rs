@@ -52,7 +52,7 @@ impl McpProcess {
         let writer = tokio::io::BufWriter::new(stdin);
         let reader = tokio::io::BufReader::new(stdout);
 
-        Ok(McpProcess {
+        Ok(Self {
             child,
             writer,
             reader,

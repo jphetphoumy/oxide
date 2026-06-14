@@ -56,7 +56,7 @@ pub fn handle_mouse_event(mouse: MouseEvent) -> Action {
     }
 }
 
-pub fn handle_tool_approval_key(key: KeyEvent) -> Action {
+pub const fn handle_tool_approval_key(key: KeyEvent) -> Action {
     match key.code {
         KeyCode::Char('y') | KeyCode::Enter => Action::ApproveTool,
         KeyCode::Char('n') | KeyCode::Esc => Action::DenyTool,

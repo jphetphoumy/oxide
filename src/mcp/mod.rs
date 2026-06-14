@@ -3,6 +3,7 @@ pub mod client;
 pub mod jsonrpc;
 pub mod process;
 pub mod server;
+pub mod transport;
 pub mod types;
 
 use anyhow::{Context, Result};
@@ -11,6 +12,7 @@ use tracing::warn;
 pub use bash::BashTool;
 pub use client::McpClient;
 pub use server::McpJsonRpcServer;
+pub use transport::McpTransport;
 pub use types::{McpTool, ToolCall, ToolResult};
 
 use crate::config::McpConfig;
@@ -25,7 +27,10 @@ impl McpManager {
         let mut tools = Vec::new();
         let mut clients = Vec::new();
 
-        tracing::debug!(server_count = config.servers.len(), "initializing MCP manager");
+        tracing::debug!(
+            server_count = config.servers.len(),
+            "initializing MCP manager"
+        );
         for server in &config.servers {
             tracing::debug!(server_name = %server.name, builtin = ?server.builtin, has_command = server.command.is_some(), "processing MCP server");
             if server.builtin == Some("bash".to_string()) {
@@ -73,7 +78,7 @@ impl McpManager {
         for tool in &tools {
             tracing::info!(tool_name = %tool.name, tool_desc = %tool.description, "MCP tool loaded");
         }
-        Ok(McpManager { tools, clients })
+        Ok(Self { tools, clients })
     }
 
     pub fn list_tools(&self) -> Vec<McpTool> {

@@ -12,6 +12,11 @@ pub struct MessageContext {
     pub email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub full_name: Option<String>,
+    #[serde(
+        rename = "clientSideMCPServerIds",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub client_side_mcp_server_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -20,16 +25,14 @@ pub struct Mention {
     pub configuration_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MessageBody {
     pub content: String,
     pub mentions: Vec<Mention>,
     pub context: MessageContext,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<crate::mcp::McpTool>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CreateConversationRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -139,22 +142,34 @@ pub enum StreamEvent {
         #[serde(default)]
         action: serde_json::Value,
     },
+    #[serde(rename = "tool_approve_execution")]
+    ToolApproveExecution {
+        #[serde(rename = "actionId")]
+        action_id: String,
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "messageId")]
+        message_id: String,
+        #[serde(default)]
+        inputs: serde_json::Value,
+        #[serde(default)]
+        metadata: serde_json::Value,
+    },
     #[serde(other)]
     Unknown,
 }
 
 impl StreamEvent {
+    #[allow(dead_code)]
     pub fn extract_tool_use(&self) -> Option<ToolCall> {
         match self {
-            StreamEvent::AgentActionSuccess { action } => {
-                Self::extract_tool_use_from_action(action)
-            }
+            Self::AgentActionSuccess { action } => Self::extract_tool_use_from_action(action),
             _ => None,
         }
     }
 
     pub fn extract_tool_use_from_action(action: &serde_json::Value) -> Option<ToolCall> {
-        if let Some("tool_use") = action.get("type").and_then(|t| t.as_str()) {
+        if action.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
             serde_json::from_value(action.clone()).ok()
         } else {
             None
@@ -199,8 +214,8 @@ mod tests {
                     origin: "cli".to_string(),
                     email: None,
                     full_name: Some("Oxide User".to_string()),
+                    client_side_mcp_server_ids: None,
                 },
-                tools: None,
             },
         };
 
@@ -250,8 +265,8 @@ mod tests {
                 origin: "cli".to_string(),
                 email: None,
                 full_name: None,
+                client_side_mcp_server_ids: None,
             },
-            tools: None,
         };
 
         let json = serde_json::to_value(request).expect("serialize");

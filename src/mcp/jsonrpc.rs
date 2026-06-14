@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonRpcRequest {
@@ -30,7 +30,7 @@ pub struct JsonRpcError {
 
 impl JsonRpcResponse {
     pub fn success(id: u64, result: Value) -> Self {
-        JsonRpcResponse {
+        Self {
             jsonrpc: "2.0".to_string(),
             id,
             result: Some(result),
@@ -39,7 +39,7 @@ impl JsonRpcResponse {
     }
 
     pub fn error(id: u64, code: i32, message: String) -> Self {
-        JsonRpcResponse {
+        Self {
             jsonrpc: "2.0".to_string(),
             id,
             result: None,
@@ -50,9 +50,4 @@ impl JsonRpcResponse {
             }),
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolsList {
-    pub tools: Vec<Value>,
 }

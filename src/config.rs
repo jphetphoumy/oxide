@@ -58,7 +58,7 @@ impl Config {
         self.dust.agent_id.as_deref()
     }
 
-    pub fn mcp(&self) -> &McpConfig {
+    pub const fn mcp(&self) -> &McpConfig {
         &self.mcp
     }
 }

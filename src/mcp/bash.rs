@@ -4,7 +4,7 @@ use tokio::process::Command;
 
 use super::types::ToolResult;
 
-const BASH_TIMEOUT: Duration = Duration::from_secs(60);
+const BASH_TIMEOUT: Duration = Duration::from_mins(1);
 
 pub struct BashTool;
 

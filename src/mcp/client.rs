@@ -26,7 +26,7 @@ impl McpClient {
             )
             .await?;
 
-        Ok(McpClient { process })
+        Ok(Self { process })
     }
 
     pub async fn list_tools(&mut self) -> Result<Vec<McpTool>> {

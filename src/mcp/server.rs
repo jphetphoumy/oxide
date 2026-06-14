@@ -2,18 +2,19 @@ use std::io::{BufRead, BufReader, Write};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::mcp::jsonrpc::{JsonRpcRequest, JsonRpcResponse, ToolsList};
 use crate::mcp::McpManager;
+use crate::mcp::jsonrpc::{JsonRpcRequest, JsonRpcResponse};
 
 pub struct McpJsonRpcServer {
     manager: Arc<Mutex<McpManager>>,
 }
 
 impl McpJsonRpcServer {
-    pub fn new(manager: Arc<Mutex<McpManager>>) -> Self {
-        McpJsonRpcServer { manager }
+    pub const fn new(manager: Arc<Mutex<McpManager>>) -> Self {
+        Self { manager }
     }
 
+    #[allow(clippy::future_not_send)]
     pub async fn run(&self) -> anyhow::Result<()> {
         let stdin = std::io::stdin();
         let reader = BufReader::new(stdin.lock());
@@ -23,7 +24,7 @@ impl McpJsonRpcServer {
             let line = match line {
                 Ok(l) => l,
                 Err(e) => {
-                    eprintln!("Error reading stdin: {}", e);
+                    eprintln!("Error reading stdin: {e}");
                     continue;
                 }
             };
@@ -35,12 +36,12 @@ impl McpJsonRpcServer {
             match self.handle_request(&line).await {
                 Ok(response) => {
                     if let Ok(json) = serde_json::to_string(&response) {
-                        let _ = writeln!(stdout, "{}", json);
+                        let _ = writeln!(stdout, "{json}");
                         let _ = stdout.flush();
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error processing request: {}", e);
+                    eprintln!("Error processing request: {e}");
                 }
             }
         }
@@ -52,7 +53,7 @@ impl McpJsonRpcServer {
         let request: JsonRpcRequest = serde_json::from_str(line)?;
 
         match request.method.as_str() {
-            "initialize" => self.handle_initialize(&request).await,
+            "initialize" => Ok(Self::handle_initialize(&request)),
             "tools/list" => self.handle_tools_list(&request).await,
             "tools/call" => self.handle_tools_call(&request).await,
             _ => Ok(JsonRpcResponse::error(
@@ -63,7 +64,7 @@ impl McpJsonRpcServer {
         }
     }
 
-    async fn handle_initialize(&self, request: &JsonRpcRequest) -> anyhow::Result<JsonRpcResponse> {
+    fn handle_initialize(request: &JsonRpcRequest) -> JsonRpcResponse {
         let response = serde_json::json!({
             "protocolVersion": "2024-11-05",
             "capabilities": {
@@ -75,12 +76,11 @@ impl McpJsonRpcServer {
             }
         });
 
-        Ok(JsonRpcResponse::success(request.id, response))
+        JsonRpcResponse::success(request.id, response)
     }
 
     async fn handle_tools_list(&self, request: &JsonRpcRequest) -> anyhow::Result<JsonRpcResponse> {
-        let manager = self.manager.lock().await;
-        let tools = manager.list_tools();
+        let tools = self.manager.lock().await.list_tools();
 
         let tools_json: Vec<serde_json::Value> = tools
             .iter()
@@ -111,7 +111,7 @@ impl McpJsonRpcServer {
             .params
             .get("arguments")
             .cloned()
-            .unwrap_or(serde_json::json!({}));
+            .unwrap_or_else(|| serde_json::json!({}));
 
         let mut manager = self.manager.lock().await;
         match manager.call_tool(name, input).await {
