@@ -60,9 +60,27 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
     } else {
         ""
     };
+
+    // Format active skills indicator
+    let skills_text = if app.active_skills().is_empty() {
+        String::new()
+    } else {
+        let skill_ids = app
+            .active_skills()
+            .iter()
+            .map(|s| s.id.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(" [skills: {skill_ids}]")
+    };
+
     let agent_text = format!(" agent: {}", app.agent_name());
     let cwd_room = usize::from(area.width).saturating_sub(
-        agent_text.chars().count() + streaming_text.chars().count() + hints.chars().count() + 2, // ", " separator
+        agent_text.chars().count()
+            + streaming_text.chars().count()
+            + skills_text.chars().count()
+            + hints.chars().count()
+            + 2, // ", " separator
     );
     let cwd_text = format_cwd_display(app.cwd(), app.home_dir(), cwd_room);
     let cwd_separator = if cwd_text.is_empty() { "" } else { ", " };
@@ -70,6 +88,7 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
         + cwd_separator.chars().count()
         + cwd_text.chars().count()
         + streaming_text.chars().count()
+        + skills_text.chars().count()
         + hints.chars().count();
     let padding = area
         .width
@@ -84,6 +103,12 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
             Style::default().fg(Color::DarkGray),
         ));
         spans.push(Span::styled(cwd_text, Style::default().fg(Color::Cyan)));
+    }
+    if !skills_text.is_empty() {
+        spans.push(Span::styled(
+            skills_text,
+            Style::default().fg(Color::Rgb(188, 140, 255)),
+        ));
     }
     spans.push(Span::styled(
         streaming_text,

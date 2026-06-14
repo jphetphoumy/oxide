@@ -208,6 +208,7 @@ impl DustClient {
         Ok(conversations)
     }
 
+    #[allow(dead_code)]
     pub async fn create_conversation(
         &self,
         message: &str,
@@ -487,11 +488,24 @@ impl DustClient {
     }
 
     #[allow(clippy::too_many_lines)]
+    #[allow(dead_code)]
     pub async fn send_message_flow(
         &self,
         conversation_id: Option<String>,
         content: String,
         tx: mpsc::UnboundedSender<DustEvent>,
+    ) -> Result<()> {
+        self.send_message_flow_with_skills(conversation_id, content, tx, &[])
+            .await
+    }
+
+    #[allow(clippy::too_many_lines)]
+    pub async fn send_message_flow_with_skills(
+        &self,
+        conversation_id: Option<String>,
+        content: String,
+        tx: mpsc::UnboundedSender<DustEvent>,
+        active_skills: &[crate::skills::Skill],
     ) -> Result<()> {
         debug!(
             existing_conversation = conversation_id.as_deref().unwrap_or("<new>"),
@@ -504,7 +518,9 @@ impl DustClient {
                 .await?;
             (user_message_id, existing)
         } else {
-            let created = self.create_conversation(&content, &self.agent_id).await?;
+            let created = self
+                .create_conversation_with_skills(&content, &self.agent_id, active_skills)
+                .await?;
             let conversation_id = created.conversation.s_id.clone();
             let user_message_id = created
                 .message
@@ -687,15 +703,27 @@ impl DustClient {
         ))
     }
 
+    #[allow(dead_code)]
     async fn create_conversation_body(
         &self,
         message: &str,
         agent_id: &str,
     ) -> Result<CreateConversationResponse> {
+        self.create_conversation_with_skills(message, agent_id, &[])
+            .await
+    }
+
+    pub async fn create_conversation_with_skills(
+        &self,
+        message: &str,
+        agent_id: &str,
+        active_skills: &[crate::skills::Skill],
+    ) -> Result<CreateConversationResponse> {
+        let content = build_message_content(message, active_skills);
         let body = CreateConversationRequest {
             title: Some(conversation_title(message)),
             visibility: DEFAULT_VISIBILITY.to_string(),
-            message: self.message_body(message, agent_id),
+            message: self.message_body(&content, agent_id),
         };
 
         self.send_message_request(
@@ -826,6 +854,22 @@ fn conversation_title(message: &str) -> String {
             ""
         }
     )
+}
+
+fn build_message_content(message: &str, active_skills: &[crate::skills::Skill]) -> String {
+    if active_skills.is_empty() {
+        return message.to_string();
+    }
+
+    let mut lines = vec!["# Oxide local skills".to_string()];
+    for skill in active_skills {
+        lines.push(format!("{}: {}", skill.id, skill.description));
+    }
+    lines.push(String::new());
+    lines.push("Use oxide_skill(skill_id) to load a skill's full instructions.".to_string());
+    lines.push(String::new());
+    lines.push(message.to_string());
+    lines.join("\n")
 }
 
 pub fn base_url_for_region(region: &str) -> String {

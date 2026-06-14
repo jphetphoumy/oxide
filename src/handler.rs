@@ -86,13 +86,23 @@ pub enum SlashCommand {
     New,
     Switch,
     Resume,
+    ActivateSkill(String),
 }
 
 fn parse_slash_command(content: &str) -> Option<SlashCommand> {
-    match content.trim() {
+    let trimmed = content.trim();
+    match trimmed {
         "/new" => Some(SlashCommand::New),
         "/switch" => Some(SlashCommand::Switch),
         "/resume" => Some(SlashCommand::Resume),
+        s if s.starts_with("/skills:") => {
+            let id = s.trim_start_matches("/skills:").to_string();
+            if id.is_empty() {
+                None
+            } else {
+                Some(SlashCommand::ActivateSkill(id))
+            }
+        }
         _ => None,
     }
 }
@@ -115,7 +125,7 @@ pub fn apply_action(app: &mut App, input: &mut InputBuffer, action: Action) -> A
             if let Some(prefix) = content.strip_prefix('/')
                 && let Some(completed) = slash::complete(prefix)
             {
-                input.set_content(completed);
+                input.set_content(&completed);
             }
         }
         Action::InsertChar(c) => input.insert_char(c),

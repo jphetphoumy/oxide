@@ -8,6 +8,7 @@ mod handler;
 mod input_buffer;
 mod mcp;
 mod observability;
+mod skills;
 mod slash;
 mod ui;
 
@@ -110,6 +111,12 @@ async fn run_tui() -> io::Result<()> {
     let home_dir = dirs::home_dir();
     let mut app = App::new(&agent_name, cwd, home_dir);
     app.set_auto_approve(config.mcp().auto_approve);
+
+    // Discover and register skills at startup
+    let skills = skills::discover_skills(std::path::Path::new(".agents/skills"));
+    app.set_skills(skills.clone());
+    slash::register_skill_commands(&skills);
+
     let mut events = EventReader::new(Duration::from_millis(250));
     let mut input = InputBuffer::new();
     let (dust_tx, mut dust_rx) = mpsc::unbounded_channel::<DustEvent>();
@@ -404,6 +411,9 @@ async fn run_tui() -> io::Result<()> {
                                         });
                                     }
                                 }
+                                Some(SlashCommand::ActivateSkill(id)) => {
+                                    app.activate_skill(&id);
+                                }
                                 None => {}
                             }
                             }
@@ -611,9 +621,15 @@ async fn run_tui() -> io::Result<()> {
             if let Some(client) = client.clone() {
                 let conversation_id = app.conversation_id().map(ToOwned::to_owned);
                 let dust_tx = dust_tx.clone();
+                let active_skills = app.active_skills().to_vec();
                 tokio::spawn(async move {
                     if let Err(error) = client
-                        .send_message_flow(conversation_id, content, dust_tx.clone())
+                        .send_message_flow_with_skills(
+                            conversation_id,
+                            content,
+                            dust_tx.clone(),
+                            &active_skills,
+                        )
                         .await
                     {
                         let _ = dust_tx.send(DustEvent::Error(error.to_string()));

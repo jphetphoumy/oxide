@@ -68,6 +68,8 @@ pub struct App {
     is_streaming: bool,
     mode: AppMode,
     auto_approve_tools: bool,
+    skills: Vec<crate::skills::Skill>,
+    active_skills: Vec<crate::skills::Skill>,
 }
 
 impl App {
@@ -85,6 +87,8 @@ impl App {
             is_streaming: false,
             mode: AppMode::Chat,
             auto_approve_tools: false,
+            skills: Vec::new(),
+            active_skills: Vec::new(),
         }
     }
 
@@ -405,6 +409,7 @@ impl App {
         self.is_streaming = false;
         self.conversation_id = None;
         self.scroll_offset = 0;
+        self.active_skills.clear();
         self.push_system_message(&format!(
             "Started a new conversation with {}",
             self.agent_name
@@ -446,6 +451,29 @@ impl App {
         } else {
             None
         }
+    }
+
+    pub fn set_skills(&mut self, skills: Vec<crate::skills::Skill>) {
+        self.skills = skills;
+    }
+
+    pub fn active_skills(&self) -> &[crate::skills::Skill] {
+        &self.active_skills
+    }
+
+    pub fn activate_skill(&mut self, id: &str) {
+        // Find the skill with this id
+        if let Some(skill) = self.skills.iter().find(|s| s.id == id).cloned() {
+            // Check if it's already active
+            if !self.active_skills.iter().any(|s| s.id == id) {
+                self.active_skills.push(skill);
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn clear_active_skills(&mut self) {
+        self.active_skills.clear();
     }
 }
 
