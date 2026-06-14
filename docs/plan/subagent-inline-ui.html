@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oxide — Subagent Inline Activity Blocks</title>
+  <style>
+/* Oxide Plan Design System - Color Palette */
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --text-muted: #8b949e;
+  --text-dim: #484f58;
+  --accent: #58a6ff;
+  --accent-dim: #1f6feb33;
+  --accent2: #f78166;
+  --green: #3fb950;
+  --green-dim: #23863533;
+  --yellow: #d29922;
+  --yellow-dim: #d2992233;
+  --red: #f85149;
+  --red-dim: #f8514933;
+  --purple: #bc8cff;
+  --purple-dim: #bc8cff33;
+  --orange: #db6d28;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  padding: 2rem;
+  max-width: 960px;
+  margin: 0 auto;
+}
+h1 { font-size: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; margin-bottom: 1.5rem; color: #fff; }
+h1 span { color: var(--accent2); }
+h2 { font-size: 1.3rem; color: var(--accent); margin: 2rem 0 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+h2 .num { background: var(--accent); color: var(--bg); border-radius: 50%; width: 1.6rem; height: 1.6rem; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 700; flex-shrink: 0; }
+h3 { font-size: 1rem; color: var(--purple); margin: 1rem 0 0.4rem; }
+h4 { font-size: 0.95rem; color: var(--yellow); margin: 0.8rem 0 0.3rem; }
+p, li { color: var(--text); margin-bottom: 0.4rem; }
+ul, ol { padding-left: 1.4rem; margin: 0.3rem 0 0.8rem; }
+li { margin: 0.25rem 0; }
+code { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.4rem; font-size: 0.9em; color: var(--accent2); font-family: var(--font-mono); }
+pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; overflow-x: auto; margin: 0.5rem 0 1rem; font-size: 0.85rem; line-height: 1.5; font-family: var(--font-mono); }
+pre code { background: none; border: none; padding: 0; color: var(--text); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; margin: 0.75rem 0; }
+.card-success { background: var(--green-dim); border-color: var(--green); border-left: 3px solid var(--green); }
+.card-warning { background: var(--yellow-dim); border-color: var(--yellow); border-left: 3px solid var(--yellow); }
+.card-error { background: var(--red-dim); border-color: var(--red); border-left: 3px solid var(--red); }
+.card-info { background: var(--purple-dim); border-color: var(--purple); border-left: 3px solid var(--purple); }
+.card-accent { background: var(--accent-dim); border-color: var(--accent); border-left: 3px solid var(--accent); }
+.objective { border-left: 3px solid var(--accent); padding: 0.75rem 1rem; background: var(--surface); border-radius: 0 8px 8px 0; margin: 1rem 0; }
+.flow-diagram { background: #000; border: 2px solid var(--border); border-radius: 8px; padding: 1rem; font-family: var(--font-mono); font-size: 0.8rem; white-space: pre; line-height: 1.4; color: var(--text-muted); overflow-x: auto; margin: 0.5rem 0 1rem; }
+.flow-diagram .highlight { color: var(--accent); }
+.flow-diagram .green { color: var(--green); }
+.flow-diagram .orange { color: var(--orange); }
+.flow-diagram .dim { color: var(--text-dim); }
+.tag { display: inline-block; font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 12px; font-weight: 600; margin-right: 0.3rem; margin-bottom: 0.3rem; }
+.tag-dep { background: #1f2937; color: var(--yellow); border: 1px solid var(--yellow); }
+.tag-new { background: #1f2937; color: var(--purple); border: 1px solid var(--purple); }
+.tag-mod { background: #1f2937; color: var(--accent); border: 1px solid var(--accent); }
+.tag-fix { background: #1f2937; color: var(--green); border: 1px solid var(--green); }
+table { width: 100%; border-collapse: collapse; margin: 0.5rem 0 1rem; }
+th, td { text-align: left; padding: 0.5rem 0.75rem; border: 1px solid var(--border); font-size: 0.9rem; }
+th { background: var(--surface); color: var(--accent); font-weight: 600; }
+tr:hover { background: rgba(88, 166, 255, 0.05); }
+section { margin-bottom: 2rem; }
+  </style>
+</head>
+<body>
+
+<h1><span>Oxide</span> Subagent Inline Activity Blocks</h1>
+
+<div class="objective">
+  <strong>Goal:</strong> Render subagent calls as inline activity blocks in the messages area, modelled after Claude Code's Agent tool display. While a subagent runs, a spinning indicator appears between the triggering user message and the agent's final reply. On completion the block updates in-place to show duration.<br>
+  <strong>Scope:</strong> New <code>Message</code> variant, call-ID correlation, in-place mutation, renderer, spinner animation via tick events. Status bar subagent count kept but made secondary.<br>
+  <strong>Success:</strong> User sees <code>⟳ Agent(description)</code> appear immediately when <code>oxide_agent</code> is invoked, and sees <code>✓ Agent(description) — 3s</code> when the call completes. No layout regressions in other message types.
+</div>
+
+<section>
+  <h2><span class="num">1</span> Current State</h2>
+
+  <div class="card">
+    <h3>Message model — <code>src/app.rs</code></h3>
+    <p>The <code>Message</code> struct currently has two fields: <code>role: Role</code> and <code>content: String</code>. The <code>Role</code> enum has three variants: <code>User</code>, <code>Agent(String)</code>, <code>System</code>. There is no variant for subagent activity; the only trace of subagents in the message layer is <code>App::subagent_count: usize</code> which drives a status bar indicator.</p>
+  </div>
+
+  <div class="card">
+    <h3>Event model — <code>src/dust/client.rs</code></h3>
+    <p><code>DustEvent</code> has two subagent variants already:</p>
+    <pre><code>SubagentStarted { description: Option&lt;String&gt; }
+SubagentFinished { description: Option&lt;String&gt; }</code></pre>
+    <p>Both fields are <code>#[allow(dead_code)]</code> — the description is never read in <code>main.rs</code>. The current handlers only call <code>app.increment_subagent()</code> / <code>app.decrement_subagent()</code>.</p>
+  </div>
+
+  <div class="card">
+    <h3>Where events are fired — <code>src/mcp/mod.rs</code></h3>
+    <p>Inside <code>McpManager::call_tool</code>, when <code>tool_name == "oxide_agent"</code>, the manager sends <code>SubagentStarted</code> before calling <code>run_subagent_with_timeout</code> and <code>SubagentFinished</code> after. The description value comes from the tool's optional <code>description</code> JSON input field.</p>
+    <p>There is no unique identifier sent with these events. Matching start to finish currently relies on the description string — which is fragile when two concurrent subagents share the same description.</p>
+  </div>
+
+  <div class="card">
+    <h3>Renderer — <code>src/ui/messages.rs</code></h3>
+    <p><code>render_messages</code> iterates <code>app.messages()</code> and produces <code>Vec&lt;Line&gt;</code>. Tool approval blocks are appended at the end via <code>tool_approval_lines()</code> only when <code>AppMode::ToolApproval</code> is active. There is no inline block concept yet.</p>
+  </div>
+
+  <div class="card">
+    <h3>Tick events — <code>src/event.rs</code></h3>
+    <p><code>AppEvent::Tick</code> fires every 250 ms when no terminal event is pending. The main loop has <code>Some(AppEvent::Tick) =&gt; {}</code> — it does nothing today. This is the hook we will use to animate the spinner.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">2</span> Design Decisions</h2>
+
+  <div class="card card-accent">
+    <h3>Decision A — New <code>Role</code> variant, not a separate struct</h3>
+    <p>Add <code>Role::SubagentCall(SubagentCallState)</code> so subagent blocks sit in the existing <code>Vec&lt;Message&gt;</code> alongside user/agent/system messages. This preserves scroll logic and all existing rendering loops without a parallel data structure. The renderer pattern-matches on role just as it does today for <code>Role::User</code> / <code>Role::Agent</code>.</p>
+  </div>
+
+  <div class="card card-accent">
+    <h3>Decision B — UUID call ID for correlation</h3>
+    <p>Add a <code>call_id: String</code> field to both <code>SubagentStarted</code> and <code>SubagentFinished</code> events. The MCP manager generates this ID (UUID v4 via the <code>uuid</code> crate, already in Cargo.toml, or a simple incrementing <code>u64</code> if not). <code>app.rs</code> uses the ID to find and mutate the correct <code>SubagentCall</code> message. This handles concurrent subagent calls safely.</p>
+  </div>
+
+  <div class="card card-accent">
+    <h3>Decision C — In-place mutation via call_id lookup</h3>
+    <p>On <code>SubagentStarted</code>, push a new <code>Message { role: Role::SubagentCall(...), content: "" }</code> and record its position by scanning for the matching call_id. On <code>SubagentFinished</code>, iterate messages in reverse to find the <code>SubagentCall</code> with matching <code>call_id</code> and update its state to <code>Done</code> with elapsed duration. No deduplication needed — each call_id is unique.</p>
+  </div>
+
+  <div class="card card-accent">
+    <h3>Decision D — Spinner via tick counter in App</h3>
+    <p>Add <code>tick: usize</code> to <code>App</code>. On each <code>AppEvent::Tick</code>, call <code>app.tick()</code> which increments the counter. The renderer reads <code>app.tick()</code> to select a spinner frame from a small static array <code>["⟳", "↻"]</code> or a Unicode braille spinner. This is pure render-time; no re-allocation on tick.</p>
+  </div>
+
+  <div class="card card-accent">
+    <h3>Decision E — Status bar count kept, not removed</h3>
+    <p>The status bar text <code>[N subagent(s) running]</code> is kept as-is. It provides a quick numeric summary that remains visible even when the user has scrolled up away from the inline blocks. The inline block is the primary UX; the status bar is the secondary fallback. No code needs to be removed from <code>layout.rs</code>.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">3</span> Data Model Changes</h2>
+
+  <div class="card">
+    <h3>New type: <code>SubagentCallState</code> — <code>src/app.rs</code></h3>
+    <pre><code>#[derive(Debug, Clone)]
+pub enum SubagentCallStatus {
+    Running,
+    Done { elapsed_secs: u64 },
+    Failed { elapsed_secs: u64 },
+}
+
+#[derive(Debug, Clone)]
+pub struct SubagentCallState {
+    pub call_id: String,
+    pub description: Option&lt;String&gt;,
+    pub status: SubagentCallStatus,
+    pub started_at: std::time::Instant,
+}</code></pre>
+  </div>
+
+  <div class="card">
+    <h3>Updated <code>Role</code> enum — <code>src/app.rs</code></h3>
+    <pre><code>#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Role {
+    User,
+    Agent(String),
+    System,
+    SubagentCall(SubagentCallState),  // NEW
+}</code></pre>
+    <p><strong>Note:</strong> <code>SubagentCallState</code> contains <code>std::time::Instant</code> which does not implement <code>PartialEq</code> or <code>Eq</code>. The <code>PartialEq</code> derive on <code>Role</code> will need a manual implementation or the derive must be replaced. The simplest fix: implement <code>PartialEq</code> manually for <code>Role</code>, comparing only the discriminant for the <code>SubagentCall</code> arm (tests that compare roles use <code>assert!(matches!(...))</code> style, not <code>==</code>, except for one test that compares <code>Role::User</code> and <code>Role::Agent</code>). Alternatively, wrap <code>started_at</code> in a newtype that implements <code>PartialEq</code> as always-equal, or store start time as <code>u64</code> unix timestamp instead of <code>Instant</code>.</p>
+    <p><strong>Recommended approach:</strong> Store <code>started_at</code> as <code>std::time::Instant</code> (for accuracy) but implement <code>PartialEq</code> manually for <code>Role</code>, making <code>SubagentCall(_) == SubagentCall(_)</code> always false (two subagent calls are never semantically equal). The existing tests that use <code>assert_eq!(msgs[0].role, Role::User)</code> will still compile because they only test User/Agent/System.</p>
+  </div>
+
+  <div class="card">
+    <h3>Updated <code>DustEvent</code> variants — <code>src/dust/client.rs</code></h3>
+    <pre><code>/// Subagent call started — call_id correlates with SubagentFinished
+SubagentStarted {
+    call_id: String,
+    description: Option&lt;String&gt;,
+},
+/// Subagent call finished
+SubagentFinished {
+    call_id: String,
+    description: Option&lt;String&gt;,
+    success: bool,
+},</code></pre>
+    <p>The <code>#[allow(dead_code)]</code> attributes on description fields are removed.</p>
+  </div>
+
+  <div class="card">
+    <h3>New App methods — <code>src/app.rs</code></h3>
+    <pre><code>/// Push a new Running subagent block into the message list.
+pub fn push_subagent_started(&amp;mut self, call_id: String, description: Option&lt;String&gt;) {
+    self.messages.push(Message {
+        role: Role::SubagentCall(SubagentCallState {
+            call_id,
+            description,
+            status: SubagentCallStatus::Running,
+            started_at: std::time::Instant::now(),
+        }),
+        content: String::new(),
+    });
+    self.scroll_offset = 0;
+    self.subagent_count += 1;
+}
+
+/// Find the SubagentCall with matching call_id and mark it Done/Failed.
+pub fn complete_subagent(&amp;mut self, call_id: &amp;str, success: bool) {
+    for msg in self.messages.iter_mut().rev() {
+        if let Role::SubagentCall(state) = &amp;mut msg.role {
+            if state.call_id == call_id {
+                let elapsed = state.started_at.elapsed().as_secs();
+                state.status = if success {
+                    SubagentCallStatus::Done { elapsed_secs: elapsed }
+                } else {
+                    SubagentCallStatus::Failed { elapsed_secs: elapsed }
+                };
+                break;
+            }
+        }
+    }
+    self.subagent_count = self.subagent_count.saturating_sub(1);
+}
+
+/// Increment tick counter (called on every AppEvent::Tick).
+pub fn tick(&amp;mut self) {
+    self.tick = self.tick.wrapping_add(1);
+}
+
+pub const fn tick_count(&amp;self) -&gt; usize {
+    self.tick
+}</code></pre>
+    <p>The existing <code>increment_subagent</code> / <code>decrement_subagent</code> methods are removed; their callers in <code>main.rs</code> are replaced.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">4</span> Event Flow Changes</h2>
+
+  <div class="flow-diagram"><span class="highlight">oxide_agent tool call invoked in McpManager::call_tool</span>
+  <span class="dim">|</span>
+  <span class="dim">|  Generate call_id = uuid::Uuid::new_v4().to_string()</span>
+  <span class="dim">|  (or: atomic u64 counter stored in McpManager)</span>
+  <span class="dim">|</span>
+  <span class="dim">v</span>
+<span class="orange">tx.send(DustEvent::SubagentStarted { call_id: call_id.clone(), description: ... })</span>
+  <span class="dim">|</span>
+  <span class="dim">v</span>
+<span class="dim">run_subagent_with_timeout(...).await   ← blocks async task</span>
+  <span class="dim">|</span>
+  <span class="dim">v</span>
+<span class="orange">tx.send(DustEvent::SubagentFinished { call_id, description, success })</span>
+
+<span class="dim">------- main.rs event loop (dust_rx branch) -------</span>
+
+<span class="highlight">DustEvent::SubagentStarted { call_id, description }</span>
+  <span class="dim">v</span>
+<span class="green">app.push_subagent_started(call_id, description)</span>
+  → pushes Message { role: SubagentCall(Running), content: "" }
+  → resets scroll to bottom
+  → increments subagent_count
+
+<span class="highlight">DustEvent::SubagentFinished { call_id, success, .. }</span>
+  <span class="dim">v</span>
+<span class="green">app.complete_subagent(&amp;call_id, success)</span>
+  → finds SubagentCall by call_id in messages (reverse scan)
+  → mutates status → Done { elapsed_secs } or Failed { elapsed_secs }
+  → decrements subagent_count
+
+<span class="highlight">AppEvent::Tick</span>
+  <span class="dim">v</span>
+<span class="green">app.tick()</span>   ← was a no-op, now increments counter
+  → renderer reads tick_count() to animate spinner</div>
+
+  <div class="card card-info">
+    <h3>Concurrency note</h3>
+    <p>Multiple concurrent <code>oxide_agent</code> calls are possible (the parent agent can call the tool multiple times in a single turn). Each call runs in its own <code>tokio::spawn</code> task inside <code>McpManager::call_tool</code>. The <code>event_tx</code> channel is <code>UnboundedSender</code>, which is <code>Send + Clone</code>, so multiple tasks can send on it concurrently without mutex. The call_id ensures each <code>SubagentFinished</code> matches exactly one <code>SubagentStarted</code> block.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">5</span> Call ID Generation</h2>
+
+  <div class="card">
+    <p>Two options exist. The simplest that avoids a new dependency is an atomic counter on <code>McpManager</code>:</p>
+    <pre><code>// In McpManager struct:
+next_call_id: std::sync::atomic::AtomicU64,
+
+// Usage:
+let call_id = self.next_call_id
+    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    .to_string();</code></pre>
+    <p>This is monotonically increasing within a session, unique, and requires no external crate. A UUID would be more robust across serialisation boundaries but oxide's event channel is in-process only, so the counter is sufficient.</p>
+    <p><strong>Recommendation:</strong> Use <code>AtomicU64</code> counter. Add <code>next_call_id: std::sync::atomic::AtomicU64</code> to <code>McpManager</code>, initialised to <code>AtomicU64::new(0)</code>. The call_id in events is a <code>String</code> (e.g. <code>"0"</code>, <code>"1"</code>, …) so the type is stable and no crate changes are needed.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">6</span> Rendering</h2>
+
+  <div class="card">
+    <h3>Spinner frames</h3>
+    <pre><code>const SPINNER_FRAMES: &amp;[&amp;str] = &amp;["⟳", "↻", "⟳", "↻"];
+// or a braille spinner for smoother feel:
+const SPINNER_FRAMES: &amp;[&amp;str] = &amp;["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];</code></pre>
+    <p>Tick fires every 250 ms. With 8 braille frames the spinner cycles every 2 s. With the simple 2-frame version it alternates every 250 ms. Either works; the 2-frame version is safe on all terminals.</p>
+  </div>
+
+  <div class="card">
+    <h3>Rendered output</h3>
+    <pre><code>// While running:
+  ⟳ Agent(Summarise the pull request)
+
+// While running (tick changes symbol):
+  ↻ Agent(Summarise the pull request)
+
+// Done:
+  ✓ Agent(Summarise the pull request)  (3s)
+
+// Failed:
+  ✗ Agent(Summarise the pull request)  failed (3s)</code></pre>
+  </div>
+
+  <div class="card">
+    <h3>Rendering logic in <code>src/ui/messages.rs</code></h3>
+    <p>Add a new branch inside the <code>for msg in app.messages()</code> loop:</p>
+    <pre><code>Role::SubagentCall(state) => {
+    lines.push(Line::from(""));
+    lines.extend(subagent_call_lines(state, app.tick_count()));
+}
+Role::User => { ... }
+Role::Agent(_) => { ... }
+Role::System => { ... }</code></pre>
+    <p>Implement a free function:</p>
+    <pre><code>fn subagent_call_lines(
+    state: &amp;SubagentCallState,
+    tick: usize,
+) -&gt; Vec&lt;Line&lt;'static&gt;&gt; {
+    let label = state.description.as_deref().unwrap_or("subagent");
+
+    match &amp;state.status {
+        SubagentCallStatus::Running => {
+            let frame_idx = tick % SPINNER_FRAMES.len();
+            let spinner = SPINNER_FRAMES[frame_idx];
+            vec![Line::from(vec![
+                Span::styled(
+                    format!("  {spinner} "),
+                    Style::default().fg(Color::Yellow),
+                ),
+                Span::styled(
+                    format!("Agent({label})"),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ])]
+        }
+        SubagentCallStatus::Done { elapsed_secs } => {
+            vec![Line::from(vec![
+                Span::styled(
+                    "  ✓ ",
+                    Style::default().fg(Color::Green),
+                ),
+                Span::styled(
+                    format!("Agent({label})"),
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("  ({elapsed_secs}s)"),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ])]
+        }
+        SubagentCallStatus::Failed { elapsed_secs } => {
+            vec![Line::from(vec![
+                Span::styled(
+                    "  ✗ ",
+                    Style::default().fg(Color::Red),
+                ),
+                Span::styled(
+                    format!("Agent({label})"),
+                    Style::default()
+                        .fg(Color::Red)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("  failed ({elapsed_secs}s)"),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ])]
+        }
+    }
+}</code></pre>
+    <p>The function signature takes <code>&amp;SubagentCallState</code> and <code>usize</code> tick — both cheaply copyable, no lifetime issues, testable in isolation with <code>TestBackend</code>.</p>
+  </div>
+
+  <div class="card card-warning">
+    <h3>PartialEq on Role — test impact</h3>
+    <p>The <code>render_messages</code> function only reads <code>msg.role</code> via pattern match — it does not use <code>==</code>. The test suite in <code>app.rs</code> uses <code>assert_eq!(msgs[0].role, Role::User)</code> for User/Agent/System but never for SubagentCall. Adding a manual <code>PartialEq</code> implementation that covers all four arms will keep existing tests green. The manual impl should compare SubagentCall arms by call_id for correctness.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">7</span> File-by-File Changes</h2>
+
+  <table>
+    <tr>
+      <th>File</th>
+      <th>Tag</th>
+      <th>Change</th>
+    </tr>
+    <tr>
+      <td><code>src/app.rs</code></td>
+      <td><span class="tag tag-new">new</span><span class="tag tag-mod">mod</span></td>
+      <td>Add <code>SubagentCallStatus</code> enum, <code>SubagentCallState</code> struct. Add <code>Role::SubagentCall</code> variant. Add <code>tick: usize</code> field to <code>App</code>. Add methods: <code>push_subagent_started</code>, <code>complete_subagent</code>, <code>tick</code>, <code>tick_count</code>. Remove <code>increment_subagent</code> / <code>decrement_subagent</code>. Implement manual <code>PartialEq</code> for <code>Role</code>.</td>
+    </tr>
+    <tr>
+      <td><code>src/dust/client.rs</code></td>
+      <td><span class="tag tag-mod">mod</span></td>
+      <td>Add <code>call_id: String</code> and <code>success: bool</code> to <code>SubagentStarted</code> / <code>SubagentFinished</code>. Remove <code>#[allow(dead_code)]</code> on description fields.</td>
+    </tr>
+    <tr>
+      <td><code>src/mcp/mod.rs</code></td>
+      <td><span class="tag tag-mod">mod</span></td>
+      <td>Add <code>next_call_id: std::sync::atomic::AtomicU64</code> to <code>McpManager</code>. Generate call_id in <code>call_tool</code> for <code>oxide_agent</code>. Pass call_id in both <code>SubagentStarted</code> and <code>SubagentFinished</code> events. Also pass <code>success: !result.is_error</code> in <code>SubagentFinished</code>.</td>
+    </tr>
+    <tr>
+      <td><code>src/main.rs</code></td>
+      <td><span class="tag tag-mod">mod</span></td>
+      <td>Replace <code>DustEvent::SubagentStarted { .. } =&gt; app.increment_subagent()</code> with <code>app.push_subagent_started(call_id, description)</code>. Replace <code>DustEvent::SubagentFinished { .. } =&gt; app.decrement_subagent()</code> with <code>app.complete_subagent(&amp;call_id, success)</code>. Change <code>Some(AppEvent::Tick) =&gt; {}</code> to <code>Some(AppEvent::Tick) =&gt; { app.tick(); }</code>. Also handle SubagentStarted/Finished in the <code>try_recv</code> drain loop below the main select.</td>
+    </tr>
+    <tr>
+      <td><code>src/ui/messages.rs</code></td>
+      <td><span class="tag tag-new">new</span><span class="tag tag-mod">mod</span></td>
+      <td>Add <code>SPINNER_FRAMES</code> constant. Add <code>subagent_call_lines(state, tick)</code> free function. Update <code>render_messages</code> to pass <code>app.tick_count()</code> and handle <code>Role::SubagentCall</code> in the message loop. Update <code>render_messages</code> function signature to remain <code>(frame, app, area)</code> — no new parameters needed since <code>app.tick_count()</code> is available.</td>
+    </tr>
+  </table>
+
+  <div class="card card-info">
+    <h3>No changes needed</h3>
+    <ul>
+      <li><code>src/ui/layout.rs</code> — status bar subagent count stays; <code>subagent_count()</code> accessor on App is kept.</li>
+      <li><code>src/mcp/subagent.rs</code> — no changes; event emission is in <code>mod.rs</code>.</li>
+      <li><code>src/dust/stream.rs</code>, <code>src/dust/types.rs</code> — not involved.</li>
+      <li><code>src/handler.rs</code>, <code>src/slash.rs</code>, <code>src/input_buffer.rs</code> — not involved.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">8</span> PartialEq Manual Implementation</h2>
+
+  <div class="card">
+    <p>The existing <code>#[derive(PartialEq, Eq)]</code> on <code>Role</code> must be replaced because <code>SubagentCallState</code> contains <code>std::time::Instant</code> which does not implement <code>PartialEq</code>. Replace the derive with:</p>
+    <pre><code>impl PartialEq for Role {
+    fn eq(&amp;self, other: &amp;Self) -&gt; bool {
+        match (self, other) {
+            (Role::User, Role::User) =&gt; true,
+            (Role::Agent(a), Role::Agent(b)) =&gt; a == b,
+            (Role::System, Role::System) =&gt; true,
+            // Two SubagentCall roles compare equal only when their call_ids match.
+            // In practice the test suite never compares two SubagentCall roles.
+            (Role::SubagentCall(a), Role::SubagentCall(b)) =&gt; a.call_id == b.call_id,
+            _ =&gt; false,
+        }
+    }
+}
+
+impl Eq for Role {}</code></pre>
+    <p>All existing tests in <code>app.rs</code> that assert <code>msgs[0].role == Role::User</code> continue to pass unchanged.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">9</span> Spinner Animation Details</h2>
+
+  <div class="card">
+    <p>Tick fires every 250 ms (the <code>EventReader</code> poll timeout). The <code>App::tick</code> counter increments on every tick event. The renderer reads <code>tick % SPINNER_FRAMES.len()</code> to select the frame.</p>
+    <ul>
+      <li>With 2 frames: alternates every 250 ms (4 Hz)</li>
+      <li>With 8 braille frames: cycles every 2 s (0.5 Hz per frame)</li>
+      <li>Recommended: use the 2-frame <code>["⟳", "↻"]</code> for broad terminal compatibility. The braille dots can render as squares on some older terminals / fonts.</li>
+    </ul>
+    <p>The tick counter wraps via <code>wrapping_add(1)</code> — no overflow risk.</p>
+    <p>The spinner only animates when a <code>SubagentCall</code> message with status <code>Running</code> exists. The frame is selected at render time per-frame; there is no stored "current frame" state. This is stateless from the renderer's perspective.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">10</span> Implementation Milestones</h2>
+
+  <div class="card card-success">
+    <h3>Milestone 1 — Data model (no UI yet)</h3>
+    <ol>
+      <li>Add <code>SubagentCallStatus</code>, <code>SubagentCallState</code> to <code>src/app.rs</code></li>
+      <li>Add <code>Role::SubagentCall</code> variant and replace <code>#[derive(PartialEq, Eq)]</code> with manual impl</li>
+      <li>Add <code>tick: usize</code> to <code>App</code>, add <code>tick()</code> / <code>tick_count()</code> methods</li>
+      <li>Add <code>push_subagent_started</code> / <code>complete_subagent</code> methods; remove old increment/decrement</li>
+      <li><code>cargo test</code> must pass (existing tests still reference User/Agent/System only)</li>
+    </ol>
+  </div>
+
+  <div class="card card-success">
+    <h3>Milestone 2 — Event wiring</h3>
+    <ol>
+      <li>Update <code>DustEvent::SubagentStarted</code> and <code>SubagentFinished</code> in <code>src/dust/client.rs</code> with call_id + success fields</li>
+      <li>Add <code>next_call_id: AtomicU64</code> to <code>McpManager</code> in <code>src/mcp/mod.rs</code></li>
+      <li>Generate call_id and populate both events in <code>McpManager::call_tool</code></li>
+      <li>Update <code>main.rs</code>: dust_rx handlers for SubagentStarted/Finished, tick handler</li>
+      <li>Also update the <code>try_recv</code> drain loop in <code>main.rs</code> to handle Subagent events (currently falls through to <code>_ =&gt; {}</code>)</li>
+      <li><code>cargo check</code> and <code>cargo clippy</code> must pass</li>
+    </ol>
+  </div>
+
+  <div class="card card-success">
+    <h3>Milestone 3 — Renderer</h3>
+    <ol>
+      <li>Add <code>SPINNER_FRAMES</code> constant and <code>subagent_call_lines</code> function to <code>src/ui/messages.rs</code></li>
+      <li>Add <code>Role::SubagentCall</code> arm to the match in <code>render_messages</code></li>
+      <li>Write unit tests: one for Running (checks spinner symbol appears), one for Done (checks ✓ and elapsed), one for Failed (checks ✗)</li>
+      <li><code>cargo test</code> must pass</li>
+    </ol>
+  </div>
+
+  <div class="card card-success">
+    <h3>Milestone 4 — Manual verification</h3>
+    <ol>
+      <li>Start oxide in tmux against a real Dust workspace</li>
+      <li>Send a message that causes the agent to use <code>oxide_agent</code></li>
+      <li>Verify: spinning indicator appears in messages area immediately</li>
+      <li>Verify: block transitions to ✓ with elapsed time on completion</li>
+      <li>Verify: status bar still shows <code>[1 subagent(s) running]</code> while active</li>
+      <li>Verify: scroll behaviour is unchanged (block anchors at bottom)</li>
+    </ol>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">11</span> Unit Tests to Write</h2>
+
+  <div class="card">
+    <h3><code>src/app.rs</code> — new tests</h3>
+    <pre><code>#[test]
+fn push_subagent_started_adds_message() {
+    let mut app = App::new("a", "/ws", None);
+    app.push_subagent_started("id-1".to_string(), Some("summarise PR".to_string()));
+    assert_eq!(app.messages().len(), 1);
+    assert!(matches!(app.messages()[0].role, Role::SubagentCall(_)));
+    assert_eq!(app.subagent_count(), 1);
+}
+
+#[test]
+fn complete_subagent_updates_status() {
+    let mut app = App::new("a", "/ws", None);
+    app.push_subagent_started("id-1".to_string(), None);
+    app.complete_subagent("id-1", true);
+    if let Role::SubagentCall(state) = &app.messages()[0].role {
+        assert!(matches!(state.status, SubagentCallStatus::Done { .. }));
+    } else {
+        panic!("expected SubagentCall");
+    }
+    assert_eq!(app.subagent_count(), 0);
+}
+
+#[test]
+fn complete_subagent_noop_for_unknown_id() {
+    let mut app = App::new("a", "/ws", None);
+    app.push_subagent_started("id-1".to_string(), None);
+    app.complete_subagent("id-unknown", true); // no-op
+    if let Role::SubagentCall(state) = &app.messages()[0].role {
+        assert!(matches!(state.status, SubagentCallStatus::Running));
+    }
+}
+
+#[test]
+fn tick_increments_counter() {
+    let mut app = App::new("a", "/ws", None);
+    assert_eq!(app.tick_count(), 0);
+    app.tick();
+    assert_eq!(app.tick_count(), 1);
+    app.tick();
+    assert_eq!(app.tick_count(), 2);
+}</code></pre>
+  </div>
+
+  <div class="card">
+    <h3><code>src/ui/messages.rs</code> — new tests</h3>
+    <pre><code>#[test]
+fn subagent_running_shows_spinner() {
+    let mut app = App::new("agent", "/ws", None);
+    app.push_subagent_started("id-1".to_string(), Some("fetch data".to_string()));
+    let rows = render_messages_text(&amp;app, 40, 6);
+    let all = rows.join("\n");
+    assert!(all.contains("Agent(fetch data)"), "label missing: {all}");
+    // spinner symbol must be one of the SPINNER_FRAMES
+    assert!(
+        all.contains('⟳') || all.contains('↻'),
+        "spinner missing: {all}"
+    );
+}
+
+#[test]
+fn subagent_done_shows_checkmark_and_elapsed() {
+    let mut app = App::new("agent", "/ws", None);
+    app.push_subagent_started("id-1".to_string(), Some("fetch data".to_string()));
+    app.complete_subagent("id-1", true);
+    let rows = render_messages_text(&amp;app, 40, 6);
+    let all = rows.join("\n");
+    assert!(all.contains('✓'), "checkmark missing: {all}");
+    assert!(all.contains("Agent(fetch data)"), "label missing: {all}");
+    assert!(all.contains('s'), "elapsed seconds missing: {all}");
+}
+
+#[test]
+fn subagent_failed_shows_cross() {
+    let mut app = App::new("agent", "/ws", None);
+    app.push_subagent_started("id-1".to_string(), Some("fetch data".to_string()));
+    app.complete_subagent("id-1", false);
+    let rows = render_messages_text(&amp;app, 40, 6);
+    let all = rows.join("\n");
+    assert!(all.contains('✗'), "cross missing: {all}");
+    assert!(all.contains("failed"), "failed text missing: {all}");
+}</code></pre>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">12</span> Risks and Mitigations</h2>
+
+  <div class="card card-warning">
+    <h3>Risk: Instant in Role breaks PartialEq derive</h3>
+    <p><strong>Mitigation:</strong> Manual <code>PartialEq</code> impl as described in Section 8. All existing tests continue to compile and pass.</p>
+  </div>
+
+  <div class="card card-warning">
+    <h3>Risk: SubagentFinished arrives before SubagentStarted is processed</h3>
+    <p>Impossible in practice. Events are sent sequentially on the same <code>UnboundedSender</code> from the same async task (SubagentStarted then await then SubagentFinished). The channel preserves ordering. The main loop processes events one at a time.</p>
+  </div>
+
+  <div class="card card-warning">
+    <h3>Risk: Concurrent subagents with same description cause confusion</h3>
+    <p><strong>Mitigation:</strong> The call_id (not description) is used for all lookup/mutation. Descriptions are display-only.</p>
+  </div>
+
+  <div class="card card-warning">
+    <h3>Risk: Very long description overflows terminal width</h3>
+    <p>The subagent label is rendered as a single <code>Span</code>. If the description is longer than the terminal width, Ratatui will truncate it (Paragraph behaviour). The renderer should clip or truncate the label to <code>body_width - 10</code> chars to avoid wrapping onto a second line. Add a <code>truncate_label(label, max)</code> helper that appends <code>…</code> if needed.</p>
+  </div>
+
+  <div class="card card-warning">
+    <h3>Risk: Elapsed time is 0s for very fast subagents</h3>
+    <p>Acceptable — display as <code>(0s)</code> or <code>(&lt;1s)</code>. Consider showing milliseconds when elapsed &lt; 1s: <code>elapsed_millis: u64</code> stored alongside <code>elapsed_secs</code>, or derive from Instant at render time. Simplest: store <code>started_at: Instant</code> in state and compute elapsed at render time instead of at <code>complete_subagent</code> call. This avoids storing a redundant field and gives sub-second resolution for display.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">13</span> Revised Data Model (incorporating risk mitigations)</h2>
+
+  <div class="card card-accent">
+    <p>Store <code>started_at: std::time::Instant</code> in <code>SubagentCallState</code> and compute elapsed at render time. The <code>SubagentCallStatus</code> enum needs no elapsed field:</p>
+    <pre><code>#[derive(Debug, Clone)]
+pub enum SubagentCallStatus {
+    Running,
+    Done,
+    Failed,
+}
+
+#[derive(Debug, Clone)]
+pub struct SubagentCallState {
+    pub call_id: String,
+    pub description: Option&lt;String&gt;,
+    pub status: SubagentCallStatus,
+    pub started_at: std::time::Instant,
+    pub finished_at: Option&lt;std::time::Instant&gt;,
+}
+</code></pre>
+    <p>In <code>complete_subagent</code>, set <code>state.finished_at = Some(std::time::Instant::now())</code>. In the renderer, compute <code>elapsed = state.finished_at.unwrap().duration_since(state.started_at)</code> and format as <code>&lt;1s</code> (when &lt; 1000 ms) or <code>Xs</code>. This approach also avoids storing duplicate data and gives sub-second accuracy.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">14</span> Summary of All Changes</h2>
+
+  <div class="card">
+    <table>
+      <tr>
+        <th>File</th>
+        <th>Lines changed (approx)</th>
+        <th>Complexity</th>
+      </tr>
+      <tr>
+        <td><code>src/app.rs</code></td>
+        <td>+80 / -10</td>
+        <td>Medium — new types, manual PartialEq, new methods</td>
+      </tr>
+      <tr>
+        <td><code>src/dust/client.rs</code></td>
+        <td>+4 / -4</td>
+        <td>Low — field additions to two enum variants</td>
+      </tr>
+      <tr>
+        <td><code>src/mcp/mod.rs</code></td>
+        <td>+10 / -2</td>
+        <td>Low — AtomicU64 counter, pass fields in send calls</td>
+      </tr>
+      <tr>
+        <td><code>src/main.rs</code></td>
+        <td>+6 / -4</td>
+        <td>Low — update match arms, add tick call</td>
+      </tr>
+      <tr>
+        <td><code>src/ui/messages.rs</code></td>
+        <td>+55 / -0</td>
+        <td>Medium — new function + match arm + tests</td>
+      </tr>
+    </table>
+  </div>
+</section>
+
+</body>
+</html>

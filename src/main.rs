@@ -433,7 +433,9 @@ async fn run_tui() -> io::Result<()> {
                             let _ = apply_action(&mut app, &mut input, action);
                         }
                     }
-                    Some(AppEvent::Tick) => {}
+                    Some(AppEvent::Tick) => {
+                        app.tick();
+                    }
                     None => break,
                 }
             }
@@ -573,11 +575,11 @@ async fn run_tui() -> io::Result<()> {
                                 }
                             });
                         }
-                        DustEvent::SubagentStarted { .. } => {
-                            app.increment_subagent();
+                        DustEvent::SubagentStarted { call_id, description } => {
+                            app.push_subagent_started(call_id, description);
                         }
-                        DustEvent::SubagentFinished { .. } => {
-                            app.decrement_subagent();
+                        DustEvent::SubagentFinished { call_id, success, .. } => {
+                            app.complete_subagent(&call_id, success);
                         }
                         _ => {}
                     }
@@ -631,6 +633,17 @@ async fn run_tui() -> io::Result<()> {
                         })
                         .collect();
                     app.restore_conversation(conversation_id, role_messages, title.as_deref());
+                }
+                DustEvent::SubagentStarted {
+                    call_id,
+                    description,
+                } => {
+                    app.push_subagent_started(call_id, description);
+                }
+                DustEvent::SubagentFinished {
+                    call_id, success, ..
+                } => {
+                    app.complete_subagent(&call_id, success);
                 }
                 _ => {}
             }

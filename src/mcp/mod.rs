@@ -25,6 +25,7 @@ pub struct McpManager {
     dust_client: Option<crate::dust::client::DustClient>,
     current_depth: u32,
     event_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::dust::client::DustEvent>>,
+    next_call_id: std::sync::atomic::AtomicU64,
 }
 
 impl McpManager {
@@ -139,6 +140,7 @@ impl McpManager {
             dust_client,
             current_depth: 0,
             event_tx: None,
+            next_call_id: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
@@ -158,6 +160,7 @@ impl McpManager {
         matches!(name, "oxide_agent" | "oxide_bash" | "oxide_skill")
     }
 
+    #[allow(clippy::too_many_lines)]
     pub async fn call_tool(
         &mut self,
         tool_name: &str,
@@ -228,9 +231,16 @@ impl McpManager {
                 .context("oxide_agent: no Dust client available")?
                 .clone();
 
+            // Generate unique call_id
+            let call_id = self
+                .next_call_id
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                .to_string();
+
             // Send SubagentStarted event
             if let Some(ref tx) = self.event_tx {
                 let _ = tx.send(crate::dust::client::DustEvent::SubagentStarted {
+                    call_id: call_id.clone(),
                     description: description.clone(),
                 });
             }
@@ -244,9 +254,12 @@ impl McpManager {
             )
             .await;
 
+            let success = result.is_ok();
+
             // Send SubagentFinished event
             if let Some(ref tx) = self.event_tx {
-                let _ = tx.send(crate::dust::client::DustEvent::SubagentFinished { description });
+                let _ =
+                    tx.send(crate::dust::client::DustEvent::SubagentFinished { call_id, success });
             }
 
             return match result {

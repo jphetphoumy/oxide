@@ -4,30 +4,68 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use crate::app::{App, AppMode, Role};
+use crate::app::{App, AppMode, Role, SubagentCallState};
 
 const INDENT: &str = "   ";
+const SPINNER_FRAMES: &[&str] = &["⟳", "↻"];
 
 pub fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
     let body_width = (area.width as usize).saturating_sub(INDENT.len());
 
     for msg in app.messages() {
-        let (label, color) = match &msg.role {
-            Role::User => ("you".to_string(), Color::Green),
-            Role::Agent(name) => (format!("@{name}"), Color::Yellow),
-            Role::System => ("system".to_string(), Color::Red),
-        };
+        match &msg.role {
+            Role::User => {
+                let label = "you";
+                let color = Color::Green;
 
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            format!("  {label}"),
-            Style::default().fg(color).add_modifier(Modifier::BOLD),
-        )));
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    format!("  {label}"),
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                )));
 
-        for text_line in msg.content.lines() {
-            for visual_line in wrap_line(text_line, body_width) {
-                lines.push(Line::from(format!("{INDENT}{visual_line}")));
+                for text_line in msg.content.lines() {
+                    for visual_line in wrap_line(text_line, body_width) {
+                        lines.push(Line::from(format!("{INDENT}{visual_line}")));
+                    }
+                }
+            }
+            Role::Agent(name) => {
+                let label = format!("@{name}");
+                let color = Color::Yellow;
+
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    format!("  {label}"),
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                )));
+
+                for text_line in msg.content.lines() {
+                    for visual_line in wrap_line(text_line, body_width) {
+                        lines.push(Line::from(format!("{INDENT}{visual_line}")));
+                    }
+                }
+            }
+            Role::System => {
+                let label = "system";
+                let color = Color::Red;
+
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    format!("  {label}"),
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                )));
+
+                for text_line in msg.content.lines() {
+                    for visual_line in wrap_line(text_line, body_width) {
+                        lines.push(Line::from(format!("{INDENT}{visual_line}")));
+                    }
+                }
+            }
+            Role::SubagentCall(state) => {
+                lines.push(Line::from(""));
+                lines.extend(subagent_call_lines(state, app.tick_count()));
             }
         }
     }
@@ -152,6 +190,65 @@ fn wrap_line(text: &str, max_width: usize) -> Vec<&str> {
     }
 
     result
+}
+
+fn subagent_call_lines(state: &SubagentCallState, tick: u64) -> Vec<Line<'static>> {
+    use crate::app::SubagentCallStatus;
+
+    let label = state.description.as_deref().unwrap_or("subagent");
+
+    match &state.status {
+        SubagentCallStatus::Running => {
+            #[allow(clippy::cast_possible_truncation)]
+            let frame_idx = (tick as usize) % SPINNER_FRAMES.len();
+            let spinner = SPINNER_FRAMES[frame_idx];
+            vec![Line::from(vec![
+                Span::styled(format!("  {spinner} "), Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    format!("Agent({label})"),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ])]
+        }
+        SubagentCallStatus::Done => {
+            let elapsed_secs = state
+                .finished_at
+                .and_then(|finish| finish.checked_duration_since(state.started_at))
+                .map_or(0, |d| d.as_secs());
+            vec![Line::from(vec![
+                Span::styled("  ✓ ", Style::default().fg(Color::Green)),
+                Span::styled(
+                    format!("Agent({label})"),
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("  ({elapsed_secs}s)"),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ])]
+        }
+        SubagentCallStatus::Failed => {
+            let elapsed_secs = state
+                .finished_at
+                .and_then(|finish| finish.checked_duration_since(state.started_at))
+                .map_or(0, |d| d.as_secs());
+            vec![Line::from(vec![
+                Span::styled("  ✗ ", Style::default().fg(Color::Red)),
+                Span::styled(
+                    format!("Agent({label})"),
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("  failed ({elapsed_secs}s)"),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ])]
+        }
+    }
 }
 
 #[cfg(test)]
@@ -299,5 +396,41 @@ mod tests {
             !all.contains("[y] approve"),
             "approval block should not appear in Chat mode"
         );
+    }
+
+    #[test]
+    fn subagent_running_shows_spinner() {
+        let mut app = App::new("agent", "/workspace", None);
+        app.push_subagent_started("id-1".to_string(), Some("fetch data".to_string()));
+        let rows = render_messages_text(&app, 40, 6);
+        let all = rows.join("\n");
+        assert!(all.contains("Agent(fetch data)"), "label missing: {all}");
+        assert!(
+            all.contains('⟳') || all.contains('↻'),
+            "spinner missing: {all}"
+        );
+    }
+
+    #[test]
+    fn subagent_done_shows_checkmark_and_elapsed() {
+        let mut app = App::new("agent", "/workspace", None);
+        app.push_subagent_started("id-1".to_string(), Some("fetch data".to_string()));
+        app.complete_subagent("id-1", true);
+        let rows = render_messages_text(&app, 40, 6);
+        let all = rows.join("\n");
+        assert!(all.contains('✓'), "checkmark missing: {all}");
+        assert!(all.contains("Agent(fetch data)"), "label missing: {all}");
+        assert!(all.contains('s'), "elapsed seconds missing: {all}");
+    }
+
+    #[test]
+    fn subagent_failed_shows_cross() {
+        let mut app = App::new("agent", "/workspace", None);
+        app.push_subagent_started("id-1".to_string(), Some("fetch data".to_string()));
+        app.complete_subagent("id-1", false);
+        let rows = render_messages_text(&app, 40, 6);
+        let all = rows.join("\n");
+        assert!(all.contains('✗'), "cross missing: {all}");
+        assert!(all.contains("failed"), "failed text missing: {all}");
     }
 }

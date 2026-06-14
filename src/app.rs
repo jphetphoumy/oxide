@@ -42,12 +42,42 @@ pub enum AppMode {
     ToolApproval(ToolApprovalState),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
+pub enum SubagentCallStatus {
+    Running,
+    Done,
+    Failed,
+}
+
+#[derive(Debug, Clone)]
+pub struct SubagentCallState {
+    pub call_id: String,
+    pub description: Option<String>,
+    pub status: SubagentCallStatus,
+    pub started_at: std::time::Instant,
+    pub finished_at: Option<std::time::Instant>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Role {
     User,
     Agent(String),
     System,
+    SubagentCall(SubagentCallState),
 }
+
+impl PartialEq for Role {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::User, Self::User) | (Self::System, Self::System) => true,
+            (Self::Agent(a), Self::Agent(b)) => a == b,
+            (Self::SubagentCall(a), Self::SubagentCall(b)) => a.call_id == b.call_id,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Role {}
 
 #[derive(Debug, Clone)]
 pub struct Message {
@@ -71,6 +101,7 @@ pub struct App {
     skills: Vec<crate::skills::Skill>,
     active_skills: Vec<crate::skills::Skill>,
     subagent_count: usize,
+    tick: u64,
 }
 
 impl App {
@@ -91,6 +122,7 @@ impl App {
             skills: Vec::new(),
             active_skills: Vec::new(),
             subagent_count: 0,
+            tick: 0,
         }
     }
 
@@ -150,14 +182,45 @@ impl App {
         self.subagent_count
     }
 
-    #[allow(clippy::missing_const_for_fn)]
-    pub fn increment_subagent(&mut self) {
+    pub fn push_subagent_started(&mut self, call_id: String, description: Option<String>) {
+        self.messages.push(Message {
+            role: Role::SubagentCall(SubagentCallState {
+                call_id,
+                description,
+                status: SubagentCallStatus::Running,
+                started_at: std::time::Instant::now(),
+                finished_at: None,
+            }),
+            content: String::new(),
+        });
+        self.scroll_offset = 0;
         self.subagent_count += 1;
     }
 
+    pub fn complete_subagent(&mut self, call_id: &str, success: bool) {
+        for msg in self.messages.iter_mut().rev() {
+            if let Role::SubagentCall(state) = &mut msg.role
+                && state.call_id == call_id
+            {
+                state.status = if success {
+                    SubagentCallStatus::Done
+                } else {
+                    SubagentCallStatus::Failed
+                };
+                state.finished_at = Some(std::time::Instant::now());
+                self.subagent_count = self.subagent_count.saturating_sub(1);
+                break;
+            }
+        }
+    }
+
     #[allow(clippy::missing_const_for_fn)]
-    pub fn decrement_subagent(&mut self) {
-        self.subagent_count = self.subagent_count.saturating_sub(1);
+    pub fn tick(&mut self) {
+        self.tick = self.tick.wrapping_add(1);
+    }
+
+    pub const fn tick_count(&self) -> u64 {
+        self.tick
     }
 
     pub fn send_message(&mut self, content: &str) -> bool {
@@ -1180,5 +1243,49 @@ mod tests {
             app.active_skills().is_empty(),
             "new conversation should clear active skills"
         );
+    }
+
+    #[test]
+    fn push_subagent_started_adds_message() {
+        let mut app = App::new("a", "/ws", None);
+        app.push_subagent_started("id-1".to_string(), Some("summarise PR".to_string()));
+        assert_eq!(app.messages().len(), 1);
+        assert!(matches!(app.messages()[0].role, Role::SubagentCall(_)));
+        assert_eq!(app.subagent_count(), 1);
+    }
+
+    #[test]
+    fn complete_subagent_updates_status() {
+        let mut app = App::new("a", "/ws", None);
+        app.push_subagent_started("id-1".to_string(), None);
+        app.complete_subagent("id-1", true);
+        if let Role::SubagentCall(state) = &app.messages()[0].role {
+            assert!(matches!(state.status, SubagentCallStatus::Done));
+        } else {
+            panic!("expected SubagentCall");
+        }
+        assert_eq!(app.subagent_count(), 0);
+    }
+
+    #[test]
+    fn complete_subagent_noop_for_unknown_id() {
+        let mut app = App::new("a", "/ws", None);
+        app.push_subagent_started("id-1".to_string(), None);
+        app.complete_subagent("id-unknown", true);
+        if let Role::SubagentCall(state) = &app.messages()[0].role {
+            assert!(matches!(state.status, SubagentCallStatus::Running));
+        }
+        // Counter must not change when the call_id is not found
+        assert_eq!(app.subagent_count(), 1);
+    }
+
+    #[test]
+    fn tick_increments_counter() {
+        let mut app = App::new("a", "/ws", None);
+        assert_eq!(app.tick_count(), 0);
+        app.tick();
+        assert_eq!(app.tick_count(), 1);
+        app.tick();
+        assert_eq!(app.tick_count(), 2);
     }
 }
