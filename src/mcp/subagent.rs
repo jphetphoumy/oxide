@@ -117,6 +117,28 @@ mod tests {
         )
         .await;
         assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("max depth"), "unexpected error: {msg}");
+    }
+
+    #[tokio::test]
+    async fn run_subagent_allows_below_max_depth() {
+        let client = make_client();
+        let result = run_subagent(
+            &client,
+            "hello".to_string(),
+            None,
+            MAX_SUBAGENT_DEPTH - 1,
+            None,
+        )
+        .await;
+        // The depth guard must not fire — any error here is network/auth, not depth.
+        if let Err(e) = result {
+            assert!(
+                !e.to_string().contains("max depth"),
+                "depth guard fired too early: {e}"
+            );
+        }
     }
 }
 
