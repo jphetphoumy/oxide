@@ -42,7 +42,7 @@ use crate::input_buffer::InputBuffer;
 use crate::mcp::McpManager;
 use crate::ui::{
     input_height, render_command_menu, render_input, render_layout, render_messages, render_picker,
-    render_resume_picker, render_tool_approval,
+    render_resume_picker,
 };
 
 fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
@@ -161,8 +161,6 @@ async fn run_tui() -> io::Result<()> {
             let filtered_convs = app.resume_filtered_conversations();
             let selected_conv = app.resume_picker_selected();
             render_resume_picker(frame, app.mode(), &filtered_convs, selected_conv);
-
-            render_tool_approval(frame, app.mode());
         })?;
 
         tokio::select! {

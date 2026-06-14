@@ -412,6 +412,7 @@ impl App {
     }
 
     pub fn enter_tool_approval(&mut self, tool_call: ToolCall) {
+        self.scroll_offset = 0;
         self.mode = AppMode::ToolApproval(ToolApprovalState {
             tool_call,
             mcp_approve: None,
@@ -419,6 +420,7 @@ impl App {
     }
 
     pub fn enter_mcp_tool_approval(&mut self, tool_call: ToolCall, mcp_approve: McpApproveInfo) {
+        self.scroll_offset = 0;
         self.mode = AppMode::ToolApproval(ToolApprovalState {
             tool_call,
             mcp_approve: Some(mcp_approve),
@@ -1014,11 +1016,17 @@ mod tests {
             input: serde_json::json!({"command": "ls"}),
         };
 
+        app.scroll_up(5);
         app.enter_tool_approval(tool_call.clone());
         match app.mode() {
             AppMode::ToolApproval(_) => {}
             _ => panic!("Expected ToolApproval mode"),
         }
+        assert_eq!(
+            app.scroll_offset(),
+            0,
+            "entering tool approval should reset scroll to bottom"
+        );
     }
 
     #[test]

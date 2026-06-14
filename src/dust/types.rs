@@ -160,14 +160,6 @@ pub enum StreamEvent {
 }
 
 impl StreamEvent {
-    #[allow(dead_code)]
-    pub fn extract_tool_use(&self) -> Option<ToolCall> {
-        match self {
-            Self::AgentActionSuccess { action } => Self::extract_tool_use_from_action(action),
-            _ => None,
-        }
-    }
-
     pub fn extract_tool_use_from_action(action: &serde_json::Value) -> Option<ToolCall> {
         if action.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
             serde_json::from_value(action.clone()).ok()
