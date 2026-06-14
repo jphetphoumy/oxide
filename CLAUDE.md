@@ -72,16 +72,37 @@ Project-specific subagents are available to parallelize and automate development
 
 | Subagent | Model | When to use |
 |----------|-------|-------------|
-| `oxide-codebase-explorer` | Haiku | Understanding oxide architecture, finding patterns, locating implementations. Use proactively during planning to gather context. |
-| `oxide-dust-codebase-explorer` | Haiku | Exploring both oxide and dust codebases together (e.g., understanding API integration, finding Dust patterns to replicate). |
-| `oxide-implementer` | Haiku | Implementing features from a plan. Writes code, runs tests, commits when done, then automatically spawns reviewer. |
-| `oxide-reviewer` | Sonnet | Reviewing implementation against a plan. Spawns codebase explorer for architectural questions, returns structured feedback. |
+| `oxide-planner` | Sonnet | Planning features from issues. Spawns both explorers in parallel to gather oxide + dust context, generates comprehensive implementation plan. Use proactively when starting feature work. |
+| `oxide-codebase-explorer` | Haiku | Understanding oxide architecture, finding patterns, locating implementations. Spawned by planner during planning phase. |
+| `oxide-dust-codebase-explorer` | Haiku | Exploring dust codebase for API contracts and patterns. Spawned by planner during planning phase. |
+| `oxide-implementer` | Haiku | Implementing features from a plan. Writes code, runs tests, commits when done, automatically spawns reviewer. |
+| `oxide-reviewer` | Sonnet | Reviewing implementation against a plan. Spawns explorer if needed for architectural verification, returns structured feedback. |
 
 ### Typical workflow
 
-1. **Planning**: Plan mentions exploring the codebase → `oxide-codebase-explorer` spawned automatically to gather context
-2. **Implementation**: You say "implement feature X" → `oxide-implementer` spawned, writes code, commits, automatically spawns `oxide-reviewer`
-3. **Review**: `oxide-reviewer` analyzes code, may spawn `oxide-codebase-explorer` for pattern verification, returns feedback
+1. **Planning**: You mention an issue or feature → `oxide-planner` spawned
+   - Planner spawns both explorers in parallel (oxide + dust context)
+   - Planner generates comprehensive HTML plan
+   - Plan returns to main thread for your review
+
+2. **Implementation**: You approve plan → `oxide-implementer` spawned
+   - Checks `feedback.md` if it exists (knows what needs fixing)
+   - Writes code, runs oxide-check, commits
+   - Automatically spawns `oxide-reviewer`
+
+3. **Review Loop**: `oxide-reviewer` analyzes code
+   - Reads previous `feedback.md` to track what's been fixed
+   - Creates/updates `feedback.md` with findings
+   - Returns verdict: ✅ Ready to merge OR 🔄 Needs revision
+   - If needs revision → Implementer reads feedback.md, fixes issues, commits, reviewer re-reviews
+   - Loop continues until ✅ Ready to merge
+
+4. **Cleanup**: When code is approved
+   - Main thread commits the final code
+   - Deletes `feedback.md` (cleanup before merge)
+   - Feature is complete
+
+**Key optimization**: `feedback.md` persists between review iterations, so implementer and reviewer don't waste tokens re-explaining old issues. Context accumulates instead of getting lost.
 
 No manual subagent triggering needed — use natural language and subagents spawn as appropriate.
 
