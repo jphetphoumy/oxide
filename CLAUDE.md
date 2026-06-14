@@ -66,6 +66,25 @@ Architectural Decision Records live in [`docs/adr/`](docs/adr/). Key ones:
 - [ADR-0006](docs/adr/0006-match-dust-cli-http-headers.md) — Match official Dust CLI headers
 - [ADR-0008](docs/adr/0008-slash-commands-inline-menu.md) — Slash commands as inline menu + mode transitions
 
+## Subagents
+
+Project-specific subagents are available to parallelize and automate development workflows:
+
+| Subagent | Model | When to use |
+|----------|-------|-------------|
+| `oxide-codebase-explorer` | Haiku | Understanding oxide architecture, finding patterns, locating implementations. Use proactively during planning to gather context. |
+| `oxide-dust-codebase-explorer` | Haiku | Exploring both oxide and dust codebases together (e.g., understanding API integration, finding Dust patterns to replicate). |
+| `oxide-implementer` | Haiku | Implementing features from a plan. Writes code, runs tests, commits when done, then automatically spawns reviewer. |
+| `oxide-reviewer` | Sonnet | Reviewing implementation against a plan. Spawns codebase explorer for architectural questions, returns structured feedback. |
+
+### Typical workflow
+
+1. **Planning**: Plan mentions exploring the codebase → `oxide-codebase-explorer` spawned automatically to gather context
+2. **Implementation**: You say "implement feature X" → `oxide-implementer` spawned, writes code, commits, automatically spawns `oxide-reviewer`
+3. **Review**: `oxide-reviewer` analyzes code, may spawn `oxide-codebase-explorer` for pattern verification, returns feedback
+
+No manual subagent triggering needed — use natural language and subagents spawn as appropriate.
+
 ## Development
 
 ### Prerequisites
