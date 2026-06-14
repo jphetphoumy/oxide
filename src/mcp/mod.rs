@@ -29,7 +29,6 @@ pub struct McpManager {
 }
 
 impl McpManager {
-    #[allow(clippy::too_many_lines)]
     pub async fn init(
         config: &McpConfig,
         skills: Vec<crate::skills::Skill>,
@@ -44,6 +43,29 @@ impl McpManager {
             "initializing MCP manager"
         );
 
+        Self::register_builtin_tools(&mut tools, dust_client.is_some());
+        Self::load_mcp_servers(config, &mut tools, &mut clients).await;
+
+        tracing::info!(
+            total_tools = tools.len(),
+            total_clients = clients.len(),
+            "MCP manager initialized successfully"
+        );
+        for tool in &tools {
+            tracing::info!(tool_name = %tool.name, tool_desc = %tool.description, "MCP tool loaded");
+        }
+        Ok(Self {
+            tools,
+            clients,
+            skills,
+            dust_client,
+            current_depth: 0,
+            event_tx: None,
+            next_call_id: std::sync::atomic::AtomicU64::new(0),
+        })
+    }
+
+    fn register_builtin_tools(tools: &mut Vec<McpTool>, has_dust_client: bool) {
         // Register built-in oxide_skill tool (always available)
         tools.push(McpTool {
             name: "oxide_skill".to_string(),
@@ -61,7 +83,7 @@ impl McpManager {
         });
 
         // Register built-in oxide_agent tool (only available when dust_client is present)
-        if dust_client.is_some() {
+        if has_dust_client {
             tools.push(McpTool {
                 name: "oxide_agent".to_string(),
                 description: "Spawn a new one-shot conversation with a Dust agent and return the agent's full response. Use this to delegate a subtask to a specialised agent. The subagent starts fresh (no shared context).".to_string(),
@@ -85,7 +107,13 @@ impl McpManager {
                 }),
             });
         }
+    }
 
+    async fn load_mcp_servers(
+        config: &McpConfig,
+        tools: &mut Vec<McpTool>,
+        clients: &mut Vec<McpClient>,
+    ) {
         for server in &config.servers {
             tracing::debug!(server_name = %server.name, builtin = ?server.builtin, has_command = server.command.is_some(), "processing MCP server");
             if server.builtin == Some("bash".to_string()) {
@@ -124,24 +152,6 @@ impl McpManager {
                 }
             }
         }
-
-        tracing::info!(
-            total_tools = tools.len(),
-            total_clients = clients.len(),
-            "MCP manager initialized successfully"
-        );
-        for tool in &tools {
-            tracing::info!(tool_name = %tool.name, tool_desc = %tool.description, "MCP tool loaded");
-        }
-        Ok(Self {
-            tools,
-            clients,
-            skills,
-            dust_client,
-            current_depth: 0,
-            event_tx: None,
-            next_call_id: std::sync::atomic::AtomicU64::new(0),
-        })
     }
 
     pub fn list_tools(&self) -> Vec<McpTool> {
@@ -160,122 +170,140 @@ impl McpManager {
         matches!(name, "oxide_agent" | "oxide_bash" | "oxide_skill")
     }
 
-    #[allow(clippy::too_many_lines)]
     pub async fn call_tool(
         &mut self,
         tool_name: &str,
         input: serde_json::Value,
     ) -> Result<ToolResult> {
         if tool_name == "oxide_skill" {
-            let skill_id = input
-                .get("skill_id")
-                .and_then(|v| v.as_str())
-                .context("oxide_skill requires 'skill_id'")?;
-
-            // Security: validate skill ID format
-            anyhow::ensure!(
-                crate::skills::is_valid_skill_id(skill_id),
-                "invalid skill_id: must contain only alphanumeric characters, hyphens, or underscores"
-            );
-
-            // Look up skill by id in discovered skills to get absolute path
-            let skill = self
-                .skills
-                .iter()
-                .find(|s| s.id == skill_id)
-                .ok_or_else(|| anyhow::anyhow!("skill '{skill_id}' not found"))?;
-
-            let content = std::fs::read_to_string(&skill.path)
-                .with_context(|| format!("failed to read skill file: {}", skill.path.display()))?;
-
-            return Ok(ToolResult {
-                content,
-                is_error: false,
-                tool_use_id: String::new(),
-            });
+            return self.call_oxide_skill(&input);
         }
 
         if tool_name == "oxide_bash" {
-            let command = input
-                .get("command")
-                .and_then(|c| c.as_str())
-                .context("bash tool requires 'command' argument")?;
-
-            let mut result = BashTool::execute(command).await;
-            result.tool_use_id = String::new();
-            return Ok(result);
+            return self.call_oxide_bash(input).await;
         }
 
         if tool_name == "oxide_agent" {
-            let prompt = input
-                .get("prompt")
-                .and_then(|v| v.as_str())
-                .context("oxide_agent requires 'prompt'")?
-                .to_string();
-
-            let agent_id = input
-                .get("agent_id")
-                .and_then(|v| v.as_str())
-                .map(ToString::to_string);
-
-            let description = input
-                .get("description")
-                .and_then(|v| v.as_str())
-                .map(ToString::to_string);
-
-            let depth = self.current_depth;
-
-            let client = self
-                .dust_client
-                .as_ref()
-                .context("oxide_agent: no Dust client available")?
-                .clone();
-
-            // Generate unique call_id
-            let call_id = self
-                .next_call_id
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                .to_string();
-
-            // Send SubagentStarted event
-            if let Some(ref tx) = self.event_tx {
-                let _ = tx.send(crate::dust::client::DustEvent::SubagentStarted {
-                    call_id: call_id.clone(),
-                    description: description.clone(),
-                });
-            }
-
-            let result = crate::mcp::subagent::run_subagent_with_timeout(
-                &client,
-                prompt,
-                agent_id,
-                depth,
-                description.clone(),
-            )
-            .await;
-
-            let success = result.is_ok();
-
-            // Send SubagentFinished event
-            if let Some(ref tx) = self.event_tx {
-                let _ =
-                    tx.send(crate::dust::client::DustEvent::SubagentFinished { call_id, success });
-            }
-
-            return match result {
-                Ok(text) => Ok(ToolResult {
-                    content: text,
-                    is_error: false,
-                    tool_use_id: String::new(),
-                }),
-                Err(e) => Ok(ToolResult {
-                    content: format!("subagent failed: {e}"),
-                    is_error: true,
-                    tool_use_id: String::new(),
-                }),
-            };
+            return self.call_oxide_agent(input).await;
         }
 
+        self.call_external_tool(tool_name, input).await
+    }
+
+    fn call_oxide_skill(&self, input: &serde_json::Value) -> Result<ToolResult> {
+        let skill_id = input
+            .get("skill_id")
+            .and_then(|v| v.as_str())
+            .context("oxide_skill requires 'skill_id'")?;
+
+        // Security: validate skill ID format
+        anyhow::ensure!(
+            crate::skills::is_valid_skill_id(skill_id),
+            "invalid skill_id: must contain only alphanumeric characters, hyphens, or underscores"
+        );
+
+        // Look up skill by id in discovered skills to get absolute path
+        let skill = self
+            .skills
+            .iter()
+            .find(|s| s.id == skill_id)
+            .ok_or_else(|| anyhow::anyhow!("skill '{skill_id}' not found"))?;
+
+        let content = std::fs::read_to_string(&skill.path)
+            .with_context(|| format!("failed to read skill file: {}", skill.path.display()))?;
+
+        Ok(ToolResult {
+            content,
+            is_error: false,
+            tool_use_id: String::new(),
+        })
+    }
+
+    async fn call_oxide_bash(&self, input: serde_json::Value) -> Result<ToolResult> {
+        let command = input
+            .get("command")
+            .and_then(|c| c.as_str())
+            .context("bash tool requires 'command' argument")?;
+
+        let mut result = BashTool::execute(command).await;
+        result.tool_use_id = String::new();
+        Ok(result)
+    }
+
+    async fn call_oxide_agent(&self, input: serde_json::Value) -> Result<ToolResult> {
+        let prompt = input
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .context("oxide_agent requires 'prompt'")?
+            .to_string();
+
+        let agent_id = input
+            .get("agent_id")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
+
+        let description = input
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
+
+        let depth = self.current_depth;
+
+        let client = self
+            .dust_client
+            .as_ref()
+            .context("oxide_agent: no Dust client available")?
+            .clone();
+
+        // Generate unique call_id
+        let call_id = self
+            .next_call_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            .to_string();
+
+        // Send SubagentStarted event
+        if let Some(ref tx) = self.event_tx {
+            let _ = tx.send(crate::dust::client::DustEvent::SubagentStarted {
+                call_id: call_id.clone(),
+                description: description.clone(),
+            });
+        }
+
+        let result = crate::mcp::subagent::run_subagent_with_timeout(
+            &client,
+            prompt,
+            agent_id,
+            depth,
+            description.clone(),
+        )
+        .await;
+
+        let success = result.is_ok();
+
+        // Send SubagentFinished event
+        if let Some(ref tx) = self.event_tx {
+            let _ = tx.send(crate::dust::client::DustEvent::SubagentFinished { call_id, success });
+        }
+
+        match result {
+            Ok(text) => Ok(ToolResult {
+                content: text,
+                is_error: false,
+                tool_use_id: String::new(),
+            }),
+            Err(e) => Ok(ToolResult {
+                content: format!("subagent failed: {e}"),
+                is_error: true,
+                tool_use_id: String::new(),
+            }),
+        }
+    }
+
+    async fn call_external_tool(
+        &mut self,
+        tool_name: &str,
+        input: serde_json::Value,
+    ) -> Result<ToolResult> {
         for client in &mut self.clients {
             if let Ok(output) = client.call_tool(tool_name, input.clone()).await {
                 return Ok(ToolResult {
