@@ -66,13 +66,15 @@ pub enum DustEvent {
     },
     /// Subagent call started
     SubagentStarted {
-        #[allow(dead_code)]
+        call_id: String,
         description: Option<String>,
     },
     /// Subagent call finished
     SubagentFinished {
+        call_id: String,
         #[allow(dead_code)]
         description: Option<String>,
+        success: bool,
     },
 }
 
