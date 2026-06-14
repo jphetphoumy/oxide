@@ -863,7 +863,10 @@ fn build_message_content(message: &str, active_skills: &[crate::skills::Skill]) 
 
     let mut lines = vec!["# Oxide local skills".to_string()];
     for skill in active_skills {
-        lines.push(format!("{}: {}", skill.id, skill.description));
+        lines.push(format!(
+            "{}: {} (skill_id: {})",
+            skill.name, skill.description, skill.id
+        ));
     }
     lines.push(String::new());
     lines.push("Use oxide_skill(skill_id) to load a skill's full instructions.".to_string());
@@ -1082,5 +1085,55 @@ mod tests {
         assert_eq!(convs[0].s_id, "c2"); // newest
         assert_eq!(convs[1].s_id, "c3"); // middle
         assert_eq!(convs[2].s_id, "c1"); // oldest
+    }
+
+    #[test]
+    fn build_message_content_with_no_skills() {
+        let message = "Hello, world!";
+        let skills: Vec<crate::skills::Skill> = vec![];
+        let result = build_message_content(message, &skills);
+        assert_eq!(result, "Hello, world!");
+    }
+
+    #[test]
+    fn build_message_content_with_one_skill() {
+        let message = "Review this code";
+        let skills = vec![crate::skills::Skill {
+            id: "code-review".to_string(),
+            name: "Code Reviewer".to_string(),
+            description: "Help review code".to_string(),
+            path: std::path::PathBuf::from(".agents/skills/code-review.md"),
+        }];
+        let result = build_message_content(message, &skills);
+
+        assert!(result.starts_with("# Oxide local skills"));
+        assert!(result.contains("Code Reviewer: Help review code (skill_id: code-review)"));
+        assert!(result.contains("Use oxide_skill(skill_id) to load a skill's full instructions."));
+        assert!(result.contains("Review this code"));
+    }
+
+    #[test]
+    fn build_message_content_with_two_skills() {
+        let message = "Please help";
+        let skills = vec![
+            crate::skills::Skill {
+                id: "code-review".to_string(),
+                name: "Code Reviewer".to_string(),
+                description: "Review code".to_string(),
+                path: std::path::PathBuf::from(".agents/skills/code-review.md"),
+            },
+            crate::skills::Skill {
+                id: "doc-writer".to_string(),
+                name: "Doc Writer".to_string(),
+                description: "Write documentation".to_string(),
+                path: std::path::PathBuf::from(".agents/skills/doc-writer.md"),
+            },
+        ];
+        let result = build_message_content(message, &skills);
+
+        assert!(result.starts_with("# Oxide local skills"));
+        assert!(result.contains("Code Reviewer: Review code (skill_id: code-review)"));
+        assert!(result.contains("Doc Writer: Write documentation (skill_id: doc-writer)"));
+        assert!(result.contains("Please help"));
     }
 }

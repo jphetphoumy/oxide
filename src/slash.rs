@@ -24,7 +24,9 @@ pub fn register_skill_commands(skills: &[crate::skills::Skill]) {
             description: skill.description.clone(),
         });
     }
-    let _ = SKILL_COMMANDS.set(commands);
+    if SKILL_COMMANDS.set(commands).is_err() {
+        tracing::warn!("register_skill_commands called more than once; second call ignored");
+    }
 }
 
 pub fn filter_commands(prefix: &str) -> Vec<SlashCommandDef> {

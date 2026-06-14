@@ -65,13 +65,13 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
     let skills_text = if app.active_skills().is_empty() {
         String::new()
     } else {
-        let skill_ids = app
+        let skill_names = app
             .active_skills()
             .iter()
-            .map(|s| s.id.as_str())
+            .map(|s| s.name.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        format!(" [skills: {skill_ids}]")
+        format!(" [skills: {skill_names}]")
     };
 
     let agent_text = format!(" agent: {}", app.agent_name());

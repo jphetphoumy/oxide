@@ -113,7 +113,7 @@ async fn run_tui() -> io::Result<()> {
     app.set_auto_approve(config.mcp().auto_approve);
 
     // Discover and register skills at startup
-    let skills = skills::discover_skills(std::path::Path::new(".agents/skills"));
+    let skills = skills::discover_skills(std::path::Path::new(skills::SKILLS_DIR));
     app.set_skills(skills.clone());
     slash::register_skill_commands(&skills);
 
@@ -441,6 +441,9 @@ async fn run_tui() -> io::Result<()> {
                         DustEvent::Error(error) => app.push_system_message(&error),
                         DustEvent::ConversationCreated(conversation_id) => {
                             app.set_conversation_id(conversation_id);
+                        }
+                        DustEvent::UserMessageCreated(user_message_id) => {
+                            app.set_user_message_id(user_message_id);
                         }
                         DustEvent::ConversationsListed(conversations) => {
                             app.set_resume_conversations(conversations);

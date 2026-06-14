@@ -35,7 +35,7 @@ impl McpManager {
         // Register built-in oxide_skill tool (always available)
         tools.push(McpTool {
             name: "oxide_skill".to_string(),
-            description: "Load the full instructions for a local skill from .agents/skills/".to_string(),
+            description: format!("Load the full instructions for a local skill from {}/", crate::skills::SKILLS_DIR),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -113,13 +113,17 @@ impl McpManager {
                 .and_then(|v| v.as_str())
                 .context("oxide_skill requires 'skill_id'")?;
 
-            // Security: reject path traversal
+            // Security: reject path traversal - allowlist alphanumeric, hyphens, underscores
             anyhow::ensure!(
-                !skill_id.contains('/') && !skill_id.contains(".."),
-                "invalid skill_id: must be a plain filename stem"
+                !skill_id.is_empty()
+                    && skill_id
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '-' || c == '_'),
+                "invalid skill_id: must contain only alphanumeric characters, hyphens, or underscores"
             );
 
-            let path = std::path::PathBuf::from(".agents/skills").join(format!("{skill_id}.md"));
+            let path =
+                std::path::PathBuf::from(crate::skills::SKILLS_DIR).join(format!("{skill_id}.md"));
             let content = std::fs::read_to_string(&path)
                 .with_context(|| format!("skill '{skill_id}' not found at {}", path.display()))?;
 
@@ -254,15 +258,62 @@ mod tests {
         };
 
         let mut manager = McpManager::init(&config).await.expect("init");
+
+        // Test rejection of path traversal with ..
         let result = manager
             .call_tool(
                 "oxide_skill",
                 serde_json::json!({"skill_id": "../../../etc/passwd"}),
             )
             .await;
-
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("invalid skill_id"));
+
+        // Test rejection of path traversal with /
+        let result = manager
+            .call_tool("oxide_skill", serde_json::json!({"skill_id": "etc/passwd"}))
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid skill_id"));
+
+        // Test rejection of empty string
+        let result = manager
+            .call_tool("oxide_skill", serde_json::json!({"skill_id": ""}))
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid skill_id"));
+    }
+
+    #[tokio::test]
+    async fn oxide_skill_accepts_valid_skill_ids() {
+        let config = McpConfig {
+            auto_approve: false,
+            servers: vec![],
+        };
+
+        let mut manager = McpManager::init(&config).await.expect("init");
+
+        // Test acceptance of alphanumeric with hyphens
+        let result = manager
+            .call_tool(
+                "oxide_skill",
+                serde_json::json!({"skill_id": "code-review"}),
+            )
+            .await;
+        // Should fail with "not found" (file doesn't exist), not "invalid skill_id"
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(!err_msg.contains("invalid skill_id"));
+        assert!(err_msg.contains("not found"));
+
+        // Test acceptance of alphanumeric with underscores
+        let result = manager
+            .call_tool("oxide_skill", serde_json::json!({"skill_id": "foo_bar_1"}))
+            .await;
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(!err_msg.contains("invalid skill_id"));
+        assert!(err_msg.contains("not found"));
     }
 
     #[tokio::test]

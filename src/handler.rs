@@ -537,4 +537,25 @@ mod tests {
         assert!(outcome.submit.is_none());
         assert!(app.messages().is_empty());
     }
+
+    #[test]
+    fn parse_activate_skill_slash_command() {
+        assert_eq!(
+            parse_slash_command("/skills:code-review"),
+            Some(SlashCommand::ActivateSkill("code-review".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_activate_skill_with_hyphen_and_underscore() {
+        assert_eq!(
+            parse_slash_command("/skills:foo-bar_1"),
+            Some(SlashCommand::ActivateSkill("foo-bar_1".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_activate_skill_with_empty_id_returns_none() {
+        assert_eq!(parse_slash_command("/skills:"), None);
+    }
 }

@@ -409,7 +409,7 @@ impl App {
         self.is_streaming = false;
         self.conversation_id = None;
         self.scroll_offset = 0;
-        self.active_skills.clear();
+        self.clear_active_skills();
         self.push_system_message(&format!(
             "Started a new conversation with {}",
             self.agent_name
@@ -471,7 +471,6 @@ impl App {
         }
     }
 
-    #[allow(dead_code)]
     pub fn clear_active_skills(&mut self) {
         self.active_skills.clear();
     }
@@ -1088,5 +1087,82 @@ mod tests {
             AppMode::Chat => {}
             _ => panic!("Expected Chat mode"),
         }
+    }
+
+    #[test]
+    fn activate_skill_with_valid_id() {
+        let mut app = App::new("test-agent", "/workspace", None);
+        let skill = crate::skills::Skill {
+            id: "code-review".to_string(),
+            name: "Code Reviewer".to_string(),
+            description: "Review code".to_string(),
+            path: PathBuf::from(".agents/skills/code-review.md"),
+        };
+        app.set_skills(vec![skill]);
+
+        app.activate_skill("code-review");
+
+        assert_eq!(app.active_skills().len(), 1);
+        assert_eq!(app.active_skills()[0].id, "code-review");
+    }
+
+    #[test]
+    fn activate_skill_deduplicates_duplicate_ids() {
+        let mut app = App::new("test-agent", "/workspace", None);
+        let skill = crate::skills::Skill {
+            id: "code-review".to_string(),
+            name: "Code Reviewer".to_string(),
+            description: "Review code".to_string(),
+            path: PathBuf::from(".agents/skills/code-review.md"),
+        };
+        app.set_skills(vec![skill]);
+
+        app.activate_skill("code-review");
+        app.activate_skill("code-review");
+
+        assert_eq!(
+            app.active_skills().len(),
+            1,
+            "duplicate skills should not be added"
+        );
+    }
+
+    #[test]
+    fn activate_skill_with_unknown_id() {
+        let mut app = App::new("test-agent", "/workspace", None);
+        let skill = crate::skills::Skill {
+            id: "code-review".to_string(),
+            name: "Code Reviewer".to_string(),
+            description: "Review code".to_string(),
+            path: PathBuf::from(".agents/skills/code-review.md"),
+        };
+        app.set_skills(vec![skill]);
+
+        app.activate_skill("nonexistent");
+
+        assert!(
+            app.active_skills().is_empty(),
+            "activating unknown skill should have no effect"
+        );
+    }
+
+    #[test]
+    fn new_conversation_clears_active_skills() {
+        let mut app = App::new("test-agent", "/workspace", None);
+        let skill = crate::skills::Skill {
+            id: "code-review".to_string(),
+            name: "Code Reviewer".to_string(),
+            description: "Review code".to_string(),
+            path: PathBuf::from(".agents/skills/code-review.md"),
+        };
+        app.set_skills(vec![skill]);
+        app.activate_skill("code-review");
+
+        assert!(!app.active_skills().is_empty());
+        app.new_conversation();
+        assert!(
+            app.active_skills().is_empty(),
+            "new conversation should clear active skills"
+        );
     }
 }
