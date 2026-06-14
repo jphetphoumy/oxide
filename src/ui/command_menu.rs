@@ -101,8 +101,12 @@ mod tests {
 
     #[test]
     fn format_command_item_includes_name_and_description() {
-        let cmd = &slash::COMMANDS[0];
-        let item = format_command_item(cmd, 60);
+        let cmd = SlashCommandDef {
+            name: "new".to_string(),
+            slash_name: "/new".to_string(),
+            description: "Start a new conversation".to_string(),
+        };
+        let item = format_command_item(&cmd, 60);
         let _ = item;
     }
 

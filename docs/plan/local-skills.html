@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oxide — Local Skills Support</title>
+  <style>
+    /* Oxide Plan Design System - Color Palette */
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --text-dim: #484f58;
+      --accent: #58a6ff;
+      --accent-dim: #1f6feb33;
+      --accent2: #f78166;
+      --green: #3fb950;
+      --green-dim: #23863533;
+      --yellow: #d29922;
+      --yellow-dim: #d2992233;
+      --red: #f85149;
+      --red-dim: #f8514933;
+      --purple: #bc8cff;
+      --purple-dim: #bc8cff33;
+      --orange: #db6d28;
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 2rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
+      margin-bottom: 1.5rem;
+      color: #fff;
+    }
+
+    h1 span { color: var(--accent2); }
+
+    h2 {
+      font-size: 1.3rem;
+      color: var(--accent);
+      margin: 2rem 0 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding-bottom: 0.3rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h2 .num {
+      background: var(--accent);
+      color: var(--bg);
+      border-radius: 50%;
+      width: 1.6rem;
+      height: 1.6rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    h3 { font-size: 1rem; color: var(--purple); margin: 1rem 0 0.4rem; }
+    h4 { font-size: 0.95rem; color: var(--yellow); margin: 0.8rem 0 0.3rem; }
+
+    p, li { color: var(--text); margin-bottom: 0.4rem; }
+    ul, ol { padding-left: 1.4rem; margin: 0.3rem 0 0.8rem; }
+    li { margin: 0.25rem 0; }
+
+    code {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.15rem 0.4rem;
+      font-size: 0.9em;
+      color: var(--accent2);
+      font-family: var(--font-mono);
+    }
+
+    pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      overflow-x: auto;
+      margin: 0.5rem 0 1rem;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      font-family: var(--font-mono);
+    }
+
+    pre code { background: none; border: none; padding: 0; color: var(--text); }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.2rem;
+      margin: 0.75rem 0;
+    }
+
+    .card-success { background: var(--green-dim); border-color: var(--green); border-left: 3px solid var(--green); }
+    .card-warning { background: var(--yellow-dim); border-color: var(--yellow); border-left: 3px solid var(--yellow); }
+    .card-error   { background: var(--red-dim);    border-color: var(--red);    border-left: 3px solid var(--red); }
+    .card-info    { background: var(--purple-dim); border-color: var(--purple); border-left: 3px solid var(--purple); }
+    .card-accent  { background: var(--accent-dim); border-color: var(--accent); border-left: 3px solid var(--accent); }
+
+    .objective {
+      border-left: 3px solid var(--accent);
+      padding: 0.75rem 1rem;
+      background: var(--surface);
+      border-radius: 0 8px 8px 0;
+      margin: 1rem 0;
+    }
+
+    .flow-diagram {
+      background: #000;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      white-space: pre;
+      line-height: 1.4;
+      color: var(--text-muted);
+      overflow-x: auto;
+      margin: 0.5rem 0 1rem;
+    }
+
+    .flow-diagram .highlight { color: var(--accent); }
+    .flow-diagram .green { color: var(--green); }
+    .flow-diagram .orange { color: var(--orange); }
+    .flow-diagram .dim { color: var(--text-dim); }
+
+    .tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      padding: 0.1rem 0.5rem;
+      border-radius: 12px;
+      font-weight: 600;
+      margin-right: 0.3rem;
+      margin-bottom: 0.3rem;
+    }
+
+    .tag-dep { background: #1f2937; color: var(--yellow); border: 1px solid var(--yellow); }
+    .tag-new { background: #1f2937; color: var(--purple); border: 1px solid var(--purple); }
+    .tag-mod { background: #1f2937; color: var(--accent); border: 1px solid var(--accent); }
+    .tag-fix { background: #1f2937; color: var(--green);  border: 1px solid var(--green); }
+
+    table { width: 100%; border-collapse: collapse; margin: 0.5rem 0 1rem; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border: 1px solid var(--border); font-size: 0.9rem; }
+    th { background: var(--surface); color: var(--accent); font-weight: 600; }
+    tr:hover { background: rgba(88, 166, 255, 0.05); }
+
+    section { margin-bottom: 2rem; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin: 0.75rem 0; }
+
+    @media (max-width: 640px) { .grid-2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+
+<h1><span>Oxide</span> Local Skills Support</h1>
+<p style="color: var(--text-muted); margin-bottom: 0.5rem;">Issue #12 · <code>feat(skills)</code></p>
+
+<div class="objective">
+  <strong>Goal:</strong> Discover, load, and activate skill definitions from local disk; inject skill context into Dust messages as a session-level system prompt.<br>
+  <strong>Scope:</strong> Local file discovery, YAML skill format, <code>/skill</code> slash command, modal picker, session-scoped activation, status bar indicator, unit tests.<br>
+  <strong>Out of scope:</strong> Remote skill registry sync, agentskills.io network fetching, per-message (ephemeral) skill activation, skill authoring wizard.<br>
+  <strong>Success:</strong> User can run <code>/skill</code>, pick a skill from disk, and have its instructions injected as a preamble into the first message of a new conversation.
+</div>
+
+<section>
+  <h2><span class="num">1</span> Skill File Format</h2>
+
+  <p>Skills are <code>.md</code> files with YAML frontmatter, stored in <code>~/.local/share/oxide/skills/</code>. This matches the agentskills.io convention and keeps skills human-readable in any editor.</p>
+
+  <pre><code>---
+name: Code Reviewer
+description: Senior engineer focused on correctness and simplicity
+version: "1.0"
+---
+You are a senior software engineer reviewing a pull request.
+
+Focus on:
+- Correctness bugs and logic errors
+- Simplification opportunities
+- Security issues
+
+Be concise. Format findings as a bullet list with severity tags (critical / minor).</code></pre>
+
+  <div class="grid-2">
+    <div class="card card-info">
+      <h3>Required frontmatter fields</h3>
+      <ul>
+        <li><code>name</code> — display name in picker</li>
+        <li><code>description</code> — one-line subtitle</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Optional frontmatter fields</h3>
+      <ul>
+        <li><code>version</code> — informational only</li>
+        <li><code>author</code> — informational only</li>
+        <li><code>tags</code> — future filtering (ignored for now)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card card-warning">
+    <h3>Parsing strategy</h3>
+    <p>Split on the second <code>---</code> delimiter. Parse the header block as YAML using <code>serde_yaml</code>. Everything after is the raw instructions body (trimmed). Files without valid frontmatter are silently skipped during discovery with a <code>tracing::warn!</code>.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">2</span> Discovery &amp; Loading</h2>
+
+  <h3>Discovery path</h3>
+  <p>Skills are loaded from <code>.agents/skills/</code> relative to the current working directory, following the <a href="https://agentskills.io">agentskills.io</a> spec. This path is canonical and not configurable.</p>
+
+  <pre><code>.agents/skills/
+├── code-review.md
+├── research-assistant.md
+└── sql-expert.md</code></pre>
+
+  <h3>New module: <code>src/skills/</code></h3>
+
+  <div class="card">
+    <table>
+      <tr><th>File</th><th>Responsibility</th></tr>
+      <tr><td><code>src/skills/mod.rs</code></td><td>Public API: <code>discover_skills()</code>, <code>Skill</code> struct re-exports</td></tr>
+      <tr><td><code>src/skills/types.rs</code></td><td><code>Skill</code> struct (metadata only — no instructions body)</td></tr>
+      <tr><td><code>src/skills/loader.rs</code></td><td>Reads directory, parses frontmatter from each <code>.md</code> file, returns <code>Vec&lt;Skill&gt;</code></td></tr>
+    </table>
+  </div>
+
+  <pre><code>// src/skills/types.rs
+#[derive(Debug, Clone)]
+pub struct Skill {
+    pub id: String,           // filename stem, e.g. "code-review"
+    pub name: String,         // from frontmatter
+    pub description: String,  // from frontmatter
+    pub path: PathBuf,        // absolute path to the .md file
+    // No instructions field — agent reads the file itself
+}
+
+// src/skills/mod.rs
+pub use types::Skill;
+pub use loader::discover_skills;
+
+// src/skills/loader.rs
+pub fn discover_skills(dir: &Path) -> Vec&lt;Skill&gt; { ... }</code></pre>
+
+  <h3>Error handling</h3>
+  <ul>
+    <li>Missing directory → return empty <code>Vec</code> (not an error; user may not have any skills yet)</li>
+    <li>Unreadable file → <code>tracing::warn!</code> and skip</li>
+    <li>Missing <code>name</code> or <code>description</code> → skip with warning</li>
+    <li>No <code>serde_yaml</code> parse errors propagated to the UI — load as many as possible</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="num">3</span> Config Changes</h2>
+
+  <div class="card card-success">
+    <h3>No config changes needed</h3>
+    <p>The discovery path <code>.agents/skills/</code> is canonical per the agentskills.io spec. No <code>[skills]</code> section is added to <code>config.toml</code>. <code>config.rs</code> is unchanged.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">4</span> UX: Slash Command &amp; Picker</h2>
+
+  <h3>Slash command format: <code>/skills:&lt;id&gt;</code></h3>
+  <p>Each skill gets its own slash command derived from its filename stem. A file <code>code-review.md</code> registers as <code>/skills:code-review</code>. The <code>skills:</code> namespace avoids collision with built-in commands and makes skills discoverable as a group.</p>
+
+  <table>
+    <tr><th>File</th><th>Command</th><th>Tab completes from</th></tr>
+    <tr><td><code>code-review.md</code></td><td><code>/skills:code-review</code></td><td><code>/sk</code>, <code>/skills</code>, <code>/skills:co</code></td></tr>
+    <tr><td><code>sql-expert.md</code></td><td><code>/skills:sql-expert</code></td><td><code>/skills:sq</code></td></tr>
+    <tr><td><code>research.md</code></td><td><code>/skills:research</code></td><td><code>/skills:re</code></td></tr>
+  </table>
+
+  <div class="card card-warning">
+    <h3>Dynamic registration: slash.rs must go runtime</h3>
+    <p>The current <code>COMMANDS</code> is a <code>&amp;[SlashCommandDef]</code> static array. Skills are loaded from disk at runtime, so the command list must become dynamic. Change <code>COMMANDS</code> to a runtime-owned <code>Vec&lt;SlashCommandDef&gt;</code> (or add a separate <code>skill_commands</code> list) loaded once at startup alongside skill discovery.</p>
+  </div>
+
+  <h3>Startup skill discovery</h3>
+  <p>Skills are discovered once at startup (not on each <code>/skills:*</code> invocation). The discovered list is stored on <code>App</code> and used to both populate dynamic slash commands and map command IDs to <code>Skill</code> structs.</p>
+
+  <pre><code>// main.rs — at startup, before event loop
+let skills = skills::discover_skills(&amp;config.skills_path());
+app.set_skills(skills.clone());
+slash::register_skill_commands(&amp;skills); // adds /skills:&lt;id&gt; entries</code></pre>
+
+  <h3>No picker needed</h3>
+  <p>Because each skill is its own command, no modal picker is required. Tab completion in the existing inline command menu surfaces all <code>/skills:*</code> entries. The <code>AppMode::SkillPicker</code> mode and <code>render_skill_picker()</code> are dropped from scope.</p>
+
+  <h3>Active skills on App</h3>
+  <pre><code>// app.rs
+pub struct App {
+    // ... existing fields ...
+    pub skills: Vec&lt;Skill&gt;,          // loaded at startup from .agents/skills/
+    pub active_skills: Vec&lt;Skill&gt;,   // set by /skills:&lt;id&gt;, cleared on /new
+}</code></pre>
+
+  <h3>Flow diagram</h3>
+  <div class="flow-diagram"><span class="highlight">Startup</span> → discover_skills() → app.set_skills() + register_skill_commands()
+  <span class="dim">│</span>
+  <span class="dim">▼</span>
+<span class="highlight">User types /sk</span> → inline menu shows all /skills:* entries (tab completes)
+  <span class="dim">│</span>
+  <span class="dim">▼</span>
+<span class="orange">User submits /skills:code-review</span>
+  <span class="dim">│</span>
+  <span class="dim">▼</span>
+<span class="highlight">parse_slash_command()</span> → <span class="orange">SlashCommand::ActivateSkill("code-review")</span>
+  <span class="dim">│</span>
+  <span class="dim">▼</span>
+<span class="highlight">app.activate_skill("code-review")</span> → active_skill = Some(skill)
+  <span class="dim">│</span>
+  <span class="dim">▼</span>
+<span class="green">Status bar: [skill: Code Reviewer] — next /new will inject it</span></div>
+</section>
+
+<section>
+  <h2><span class="num">5</span> Built-in MCP Tool: <code>oxide_skill</code></h2>
+
+  <div class="card card-info">
+    <h3>Why MCP, not message injection</h3>
+    <ul>
+      <li><strong>contentFragments tested and rejected</strong> — Dust surfaces its own native skills, not injected content.</li>
+      <li><strong>Full-body prepend</strong> — duplicates skill content into history on every conversation. Wasteful.</li>
+      <li><strong>File system MCP</strong> — requires the bash tool to be separately configured.</li>
+      <li><strong>Built-in MCP tool</strong> — the agent calls <code>oxide_skill(skill_id)</code> and gets the content on demand. No other tool needed. Same pattern as <code>oxide_bash</code>.</li>
+    </ul>
+  </div>
+
+  <h3>Tool registration — same pattern as <code>oxide_bash</code></h3>
+  <p>Auto-registered in <code>McpManager::init()</code> with no config entry required. Always available.</p>
+
+  <pre><code>// src/mcp/mod.rs — McpManager::init()
+tools.push(McpTool {
+    name: "oxide_skill".to_string(),
+    description: "Load the full instructions for a local skill from .agents/skills/".to_string(),
+    input_schema: serde_json::json!({
+        "type": "object",
+        "properties": {
+            "skill_id": {
+                "type": "string",
+                "description": "Skill id, e.g. \"code-review\" → .agents/skills/code-review.md"
+            }
+        },
+        "required": ["skill_id"]
+    }),
+});
+
+// src/mcp/mod.rs — McpManager::call_tool()
+if tool_name == "oxide_skill" {
+    let skill_id = input.get("skill_id").and_then(|v| v.as_str())
+        .context("oxide_skill requires 'skill_id'")?;
+    let path = PathBuf::from(".agents/skills").join(format!("{skill_id}.md"));
+    let content = std::fs::read_to_string(&path)
+        .with_context(|| format!("skill '{skill_id}' not found at {}", path.display()))?;
+    return Ok(ToolResult { content, is_error: false, tool_use_id: String::new() });
+}</code></pre>
+
+  <h3>First message: lightweight index only</h3>
+  <p>When skills are active, a compact index is prepended to the first user message. Name and description only — no file content. The agent calls <code>oxide_skill</code> to load whatever it needs.</p>
+
+  <pre><code># Oxide local skills
+code-review: Help review code for correctness, simplicity, and security
+sql-expert: Optimize SQL queries and schema design
+
+Use oxide_skill(skill_id) to load a skill's full instructions.
+
+{user's first message}</code></pre>
+
+  <div class="flow-diagram"><span class="highlight">User activates /skills:code-review → types first message → Enter</span>
+  <span class="dim">│</span>
+  <span class="dim">▼</span>
+<span class="orange">create_conversation_body()</span> — active_skills not empty?
+  <span class="dim">├── yes →</span> prepend skills index (name + description, all active skills)
+  <span class="dim">└── no  →</span> first message unchanged
+  <span class="dim">│</span>
+  <span class="dim">▼</span>
+<span class="green">POST /conversations</span>
+  <span class="dim">│</span>
+  <span class="dim">▼</span>
+<span class="highlight">Agent calls oxide_skill("code-review")</span>
+  <span class="dim">│</span>
+  <span class="dim">▼</span>
+<span class="orange">McpManager::call_tool("oxide_skill")</span> → reads .agents/skills/code-review.md → returns content
+  <span class="dim">│</span>
+  <span class="dim">▼</span>
+<span class="green">Agent applies skill instructions</span></div>
+
+  <h3>Status bar indicator</h3>
+  <p>When skills are active, the status bar shows all active skill names:</p>
+  <pre><code>  dust · @gpt4 · [skills: code-review, sql-expert]</code></pre>
+  <p>Rendered in <code>var(--purple)</code>. <code>/new</code> clears all active skills.</p>
+</section>
+
+<section>
+  <h2><span class="num">6</span> Implementation Phases</h2>
+
+  <div class="card">
+    <h3>Phase 1 — Skills module (no UI)</h3>
+    <span class="tag tag-new">new</span>
+    <ul>
+      <li>Create <code>src/skills/types.rs</code> — <code>Skill</code> struct</li>
+      <li>Create <code>src/skills/loader.rs</code> — <code>discover_skills(path)</code></li>
+      <li>Create <code>src/skills/mod.rs</code> — re-exports</li>
+      <li>Add <code>serde_yaml</code> to <code>Cargo.toml</code></li>
+      <li>Wire <code>mod skills;</code> in <code>main.rs</code></li>
+      <li>Unit tests: discovery, parse valid file, skip invalid, empty dir</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Phase 2 — Built-in MCP tool</h3>
+    <span class="tag tag-mod">mod</span>
+    <ul>
+      <li>Register <code>oxide_skill</code> tool in <code>McpManager::init()</code> — always, no config needed</li>
+      <li>Handle <code>"oxide_skill"</code> in <code>McpManager::call_tool()</code> — read <code>.agents/skills/&lt;id&gt;.md</code></li>
+      <li>Unit tests: valid skill id returns file content, missing skill returns error, path traversal rejected</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Phase 3 — Dynamic slash commands + app state</h3>
+    <span class="tag tag-mod">mod</span>
+    <ul>
+      <li>Make skill commands dynamic in <code>slash.rs</code>: add <code>register_skill_commands(skills)</code> that appends <code>/skills:&lt;id&gt;</code> entries to a runtime list</li>
+      <li>Add <code>SlashCommand::ActivateSkill(String)</code> variant in <code>handler.rs</code></li>
+      <li>Update <code>parse_slash_command()</code> to match <code>/skills:*</code> prefix pattern</li>
+      <li>Add <code>skills: Vec&lt;Skill&gt;</code> and <code>active_skills: Vec&lt;Skill&gt;</code> to <code>app.rs</code></li>
+      <li>Add <code>set_skills()</code> and <code>activate_skill(id)</code> methods (appends); <code>/new</code> clears <code>active_skills</code></li>
+      <li>Unit tests: <code>/skills:code-review</code> → <code>ActivateSkill("code-review")</code>, multiple activations stack, <code>/new</code> clears all</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Phase 4 — UI: status bar indicator only</h3>
+    <span class="tag tag-mod">mod</span>
+    <ul>
+      <li>Update <code>ui/layout.rs</code> to render skill indicator in status bar when <code>active_skill</code> is set</li>
+      <li>No new picker UI needed — inline command menu auto-surfaces <code>/skills:*</code> via existing tab completion</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Phase 5 — Main loop dispatch &amp; context injection</h3>
+    <span class="tag tag-mod">mod</span>
+    <ul>
+      <li>Add <code>SlashCommand::Skill</code> match arm in <code>main.rs</code> Chat dispatch</li>
+      <li>Spawn async task: <code>discover_skills()</code> → send via MPSC as <code>DustEvent::SkillsLoaded</code></li>
+      <li>Handle <code>SkillPicker</code> key events in main event loop (reuse <code>PickerAction</code>)</li>
+      <li>Pass <code>app.active_skill.as_ref()</code> into <code>create_conversation_body()</code> — inject as first-message preamble only</li>
+      <li>No injection on <code>post_message_body()</code> — skill is already in conversation history</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">7</span> Files Changed</h2>
+
+  <table>
+    <tr><th>File</th><th>Change</th><th>Type</th></tr>
+    <tr><td><code>src/skills/mod.rs</code></td><td>New module</td><td><span class="tag tag-new">new</span></td></tr>
+    <tr><td><code>src/skills/types.rs</code></td><td>Skill struct (id, name, description, path — no instructions)</td><td><span class="tag tag-new">new</span></td></tr>
+    <tr><td><code>src/skills/loader.rs</code></td><td>Discovery + frontmatter-only parsing</td><td><span class="tag tag-new">new</span></td></tr>
+    <tr><td><code>Cargo.toml</code></td><td>Add <code>serde_yaml</code></td><td><span class="tag tag-dep">dep</span></td></tr>
+    <tr><td><code>src/config.rs</code></td><td>No changes</td><td>—</td></tr>
+    <tr><td><code>src/mcp/mod.rs</code></td><td>Register + handle <code>oxide_skill</code> built-in tool (auto, no config)</td><td><span class="tag tag-mod">mod</span></td></tr>
+    <tr><td><code>src/slash.rs</code></td><td>Dynamic <code>register_skill_commands()</code> for <code>/skills:*</code></td><td><span class="tag tag-mod">mod</span></td></tr>
+    <tr><td><code>src/handler.rs</code></td><td>Add <code>SlashCommand::ActivateSkill(String)</code></td><td><span class="tag tag-mod">mod</span></td></tr>
+    <tr><td><code>src/app.rs</code></td><td>Add <code>skills</code>, <code>active_skills: Vec&lt;Skill&gt;</code>, <code>activate_skill()</code></td><td><span class="tag tag-mod">mod</span></td></tr>
+    <tr><td><code>src/ui/picker.rs</code></td><td>No changes</td><td>—</td></tr>
+    <tr><td><code>src/ui/layout.rs</code></td><td>Active skills indicator in status bar</td><td><span class="tag tag-mod">mod</span></td></tr>
+    <tr><td><code>src/main.rs</code></td><td>Startup discovery, slash dispatch, first-message index injection</td><td><span class="tag tag-mod">mod</span></td></tr>
+    <tr><td><code>src/dust/client.rs</code></td><td>Modify <code>create_conversation_body()</code> to accept active skills list</td><td><span class="tag tag-mod">mod</span></td></tr>
+  </table>
+</section>
+
+<section>
+  <h2><span class="num">8</span> Testing Strategy</h2>
+
+  <div class="grid-2">
+    <div class="card card-success">
+      <h3>Unit tests (Phase 1–4)</h3>
+      <ul>
+        <li><code>discover_skills</code> with empty dir → empty vec</li>
+        <li><code>discover_skills</code> with valid <code>.md</code> → correct <code>Skill</code></li>
+        <li>File missing <code>name</code> field → skipped</li>
+        <li>File with no frontmatter → skipped</li>
+        <li>Config <code>skills_path()</code> defaults to XDG dir</li>
+        <li>Config custom path with <code>~</code> is expanded</li>
+        <li><code>/skill</code> tab-completes</li>
+        <li><code>/skill</code> submit → <code>SlashCommand::Skill</code></li>
+        <li>Mode transition: <code>enter_skill_picker</code> sets loading, <code>select_skill</code> sets active</li>
+        <li><code>/new</code> clears <code>active_skill</code></li>
+        <li><code>create_conversation_body</code> with active skill: first message has <code>&lt;skill&gt;</code> preamble</li>
+        <li><code>create_conversation_body</code> without skill: first message is unchanged</li>
+        <li><code>post_message_body</code> never injects skill (even if active)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Manual TUI tests (tmux)</h3>
+      <ul>
+        <li>Type <code>/sk</code> → tab-completes to <code>/skill</code></li>
+        <li>Submit <code>/skill</code> → modal opens</li>
+        <li>Up/Down navigates skill list</li>
+        <li>Type to filter list</li>
+        <li>Enter selects → status bar shows skill name</li>
+        <li>Esc dismisses → no skill selected</li>
+        <li>Send message with active skill → instructions prepended (visible in Dust)</li>
+        <li><code>/new</code> clears skill indicator</li>
+        <li>Empty skills dir → modal shows "No skills found"</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">9</span> Risks &amp; Mitigations</h2>
+
+  <div class="card card-warning">
+    <h3>Skill instructions may be long</h3>
+    <p>Very long skill bodies will consume Dust context budget on every message. <strong>Mitigation:</strong> no automatic truncation in v1 — document that skill files should be concise. Add a <code>tracing::warn!</code> if instructions exceed 4 KB.</p>
+  </div>
+
+  <div class="card card-warning">
+    <h3>serde_yaml dependency</h3>
+    <p>Adds a crate for YAML parsing. <strong>Mitigation:</strong> evaluate whether a manual frontmatter splitter (split on <code>---</code>, parse key-value pairs) avoids the dependency. Only add <code>serde_yaml</code> if the manual approach proves fragile.</p>
+  </div>
+
+  <div class="card card-info">
+    <h3>agentskills.io format compatibility</h3>
+    <p>The agentskills.io schema is not formally documented. The frontmatter fields chosen (<code>name</code>, <code>description</code>, <code>version</code>) are a common subset. Unknown fields are ignored by serde, so future additions won't break loading.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">10</span> Decisions</h2>
+
+  <div class="card card-success">
+    <h3>Activation scope: per conversation</h3>
+    <p>Skills are activated per conversation, not per session. <code>active_skills</code> is cleared on <code>/new</code>. <code>/resume</code> does not restore skills from the previous conversation.</p>
+  </div>
+
+  <div class="card card-success">
+    <h3>Multiple active skills: yes</h3>
+    <p>Multiple skills can be active simultaneously. <code>App</code> holds <code>active_skills: Vec&lt;Skill&gt;</code>. Each <code>/skills:&lt;id&gt;</code> invocation appends to the list (or is a no-op if already active). The injection block lists all active skills.</p>
+  </div>
+
+  <div class="card card-accent">
+    <h3>Injection format: compact index block</h3>
+    <p>The preamble is a compact heading + table — one line per skill, name and description only. The agent knows to read the file path for full instructions.</p>
+    <pre><code># Oxide local skills
+code-review: Help review code for correctness, simplicity, and security
+sql-expert: Optimize SQL queries and schema design
+
+{user's first message}</code></pre>
+    <p>The path to each skill file (<code>.agents/skills/&lt;id&gt;.md</code>) is derivable by the agent from the id. No explicit path needed in the index if the agent knows the convention. Alternatively include it for clarity:</p>
+    <pre><code># Oxide local skills
+code-review (.agents/skills/code-review.md): Help review code for correctness, simplicity, and security</code></pre>
+  </div>
+</section>
+
+</body>
+</html>

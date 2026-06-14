@@ -208,6 +208,7 @@ impl DustClient {
         Ok(conversations)
     }
 
+    #[allow(dead_code)]
     pub async fn create_conversation(
         &self,
         message: &str,
@@ -487,24 +488,42 @@ impl DustClient {
     }
 
     #[allow(clippy::too_many_lines)]
+    #[allow(dead_code)]
     pub async fn send_message_flow(
         &self,
         conversation_id: Option<String>,
         content: String,
         tx: mpsc::UnboundedSender<DustEvent>,
     ) -> Result<()> {
+        self.send_message_flow_with_skills(conversation_id, content, tx, &[])
+            .await
+    }
+
+    #[allow(clippy::too_many_lines)]
+    pub async fn send_message_flow_with_skills(
+        &self,
+        conversation_id: Option<String>,
+        content: String,
+        tx: mpsc::UnboundedSender<DustEvent>,
+        active_skills: &[crate::skills::Skill],
+    ) -> Result<()> {
         debug!(
             existing_conversation = conversation_id.as_deref().unwrap_or("<new>"),
             content_len = content.len(),
             "starting Dust message flow"
         );
+        // Per ADR-0009: Skills are injected only at conversation creation, not on subsequent messages.
+        // The agent retains the skill index in the conversation history, so it can reference and
+        // use oxide_skill(skill_id) in subsequent turns without re-sending the full skill list.
         let (user_message_id, conversation_id) = if let Some(existing) = conversation_id {
             let user_message_id = self
                 .post_message(&existing, &content, &self.agent_id)
                 .await?;
             (user_message_id, existing)
         } else {
-            let created = self.create_conversation(&content, &self.agent_id).await?;
+            let created = self
+                .create_conversation_with_skills(&content, &self.agent_id, active_skills)
+                .await?;
             let conversation_id = created.conversation.s_id.clone();
             let user_message_id = created
                 .message
@@ -687,15 +706,27 @@ impl DustClient {
         ))
     }
 
+    #[allow(dead_code)]
     async fn create_conversation_body(
         &self,
         message: &str,
         agent_id: &str,
     ) -> Result<CreateConversationResponse> {
+        self.create_conversation_with_skills(message, agent_id, &[])
+            .await
+    }
+
+    pub async fn create_conversation_with_skills(
+        &self,
+        message: &str,
+        agent_id: &str,
+        active_skills: &[crate::skills::Skill],
+    ) -> Result<CreateConversationResponse> {
+        let content = build_message_content(message, active_skills);
         let body = CreateConversationRequest {
             title: Some(conversation_title(message)),
             visibility: DEFAULT_VISIBILITY.to_string(),
-            message: self.message_body(message, agent_id),
+            message: self.message_body(&content, agent_id),
         };
 
         self.send_message_request(
@@ -826,6 +857,25 @@ fn conversation_title(message: &str) -> String {
             ""
         }
     )
+}
+
+fn build_message_content(message: &str, active_skills: &[crate::skills::Skill]) -> String {
+    if active_skills.is_empty() {
+        return message.to_string();
+    }
+
+    let mut lines = vec!["# Oxide local skills".to_string()];
+    for skill in active_skills {
+        lines.push(format!(
+            "{}: {} (skill_id: {})",
+            skill.name, skill.description, skill.id
+        ));
+    }
+    lines.push(String::new());
+    lines.push("Use oxide_skill(skill_id) to load a skill's full instructions.".to_string());
+    lines.push(String::new());
+    lines.push(message.to_string());
+    lines.join("\n")
 }
 
 pub fn base_url_for_region(region: &str) -> String {
@@ -1038,5 +1088,55 @@ mod tests {
         assert_eq!(convs[0].s_id, "c2"); // newest
         assert_eq!(convs[1].s_id, "c3"); // middle
         assert_eq!(convs[2].s_id, "c1"); // oldest
+    }
+
+    #[test]
+    fn build_message_content_with_no_skills() {
+        let message = "Hello, world!";
+        let skills: Vec<crate::skills::Skill> = vec![];
+        let result = build_message_content(message, &skills);
+        assert_eq!(result, "Hello, world!");
+    }
+
+    #[test]
+    fn build_message_content_with_one_skill() {
+        let message = "Review this code";
+        let skills = vec![crate::skills::Skill {
+            id: "code-review".to_string(),
+            name: "Code Reviewer".to_string(),
+            description: "Help review code".to_string(),
+            path: std::path::PathBuf::from(".agents/skills/code-review.md"),
+        }];
+        let result = build_message_content(message, &skills);
+
+        assert!(result.starts_with("# Oxide local skills"));
+        assert!(result.contains("Code Reviewer: Help review code (skill_id: code-review)"));
+        assert!(result.contains("Use oxide_skill(skill_id) to load a skill's full instructions."));
+        assert!(result.contains("Review this code"));
+    }
+
+    #[test]
+    fn build_message_content_with_two_skills() {
+        let message = "Please help";
+        let skills = vec![
+            crate::skills::Skill {
+                id: "code-review".to_string(),
+                name: "Code Reviewer".to_string(),
+                description: "Review code".to_string(),
+                path: std::path::PathBuf::from(".agents/skills/code-review.md"),
+            },
+            crate::skills::Skill {
+                id: "doc-writer".to_string(),
+                name: "Doc Writer".to_string(),
+                description: "Write documentation".to_string(),
+                path: std::path::PathBuf::from(".agents/skills/doc-writer.md"),
+            },
+        ];
+        let result = build_message_content(message, &skills);
+
+        assert!(result.starts_with("# Oxide local skills"));
+        assert!(result.contains("Code Reviewer: Review code (skill_id: code-review)"));
+        assert!(result.contains("Doc Writer: Write documentation (skill_id: doc-writer)"));
+        assert!(result.contains("Please help"));
     }
 }

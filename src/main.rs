@@ -8,6 +8,7 @@ mod handler;
 mod input_buffer;
 mod mcp;
 mod observability;
+mod skills;
 mod slash;
 mod ui;
 
@@ -100,8 +101,12 @@ async fn run_tui() -> io::Result<()> {
 
     let mut terminal = setup_terminal()?;
     let config = Config::load().map_err(|error| io::Error::other(error.to_string()))?;
+
+    // Discover and register skills at startup (before MCP manager init)
+    let skills = skills::discover_skills(std::path::Path::new(skills::SKILLS_DIR));
+
     let mcp_manager = Arc::new(tokio::sync::Mutex::new(
-        McpManager::init(config.mcp())
+        McpManager::init(config.mcp(), skills.clone())
             .await
             .map_err(|error| io::Error::other(error.to_string()))?,
     ));
@@ -110,6 +115,11 @@ async fn run_tui() -> io::Result<()> {
     let home_dir = dirs::home_dir();
     let mut app = App::new(&agent_name, cwd, home_dir);
     app.set_auto_approve(config.mcp().auto_approve);
+
+    // Register skills with slash commands
+    app.set_skills(skills.clone());
+    slash::register_skill_commands(&skills);
+
     let mut events = EventReader::new(Duration::from_millis(250));
     let mut input = InputBuffer::new();
     let (dust_tx, mut dust_rx) = mpsc::unbounded_channel::<DustEvent>();
@@ -404,6 +414,9 @@ async fn run_tui() -> io::Result<()> {
                                         });
                                     }
                                 }
+                                Some(SlashCommand::ActivateSkill(id)) => {
+                                    app.activate_skill(&id);
+                                }
                                 None => {}
                             }
                             }
@@ -431,6 +444,9 @@ async fn run_tui() -> io::Result<()> {
                         DustEvent::Error(error) => app.push_system_message(&error),
                         DustEvent::ConversationCreated(conversation_id) => {
                             app.set_conversation_id(conversation_id);
+                        }
+                        DustEvent::UserMessageCreated(user_message_id) => {
+                            app.set_user_message_id(user_message_id);
                         }
                         DustEvent::ConversationsListed(conversations) => {
                             app.set_resume_conversations(conversations);
@@ -611,9 +627,15 @@ async fn run_tui() -> io::Result<()> {
             if let Some(client) = client.clone() {
                 let conversation_id = app.conversation_id().map(ToOwned::to_owned);
                 let dust_tx = dust_tx.clone();
+                let active_skills = app.active_skills().to_vec();
                 tokio::spawn(async move {
                     if let Err(error) = client
-                        .send_message_flow(conversation_id, content, dust_tx.clone())
+                        .send_message_flow_with_skills(
+                            conversation_id,
+                            content,
+                            dust_tx.clone(),
+                            &active_skills,
+                        )
                         .await
                     {
                         let _ = dust_tx.send(DustEvent::Error(error.to_string()));
@@ -643,8 +665,9 @@ async fn run_mcp_server() -> Result<()> {
     use tokio::sync::Mutex;
 
     let config = Config::load().map_err(|error| io::Error::other(error.to_string()))?;
+    let skills = skills::discover_skills(std::path::Path::new(skills::SKILLS_DIR));
     let mcp_manager = Arc::new(Mutex::new(
-        McpManager::init(config.mcp())
+        McpManager::init(config.mcp(), skills)
             .await
             .map_err(|error| io::Error::other(error.to_string()))?,
     ));

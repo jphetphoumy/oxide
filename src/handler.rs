@@ -86,13 +86,23 @@ pub enum SlashCommand {
     New,
     Switch,
     Resume,
+    ActivateSkill(String),
 }
 
 fn parse_slash_command(content: &str) -> Option<SlashCommand> {
-    match content.trim() {
+    let trimmed = content.trim();
+    match trimmed {
         "/new" => Some(SlashCommand::New),
         "/switch" => Some(SlashCommand::Switch),
         "/resume" => Some(SlashCommand::Resume),
+        s if s.starts_with("/skills:") => {
+            let id = s.trim_start_matches("/skills:").to_string();
+            if crate::skills::is_valid_skill_id(&id) {
+                Some(SlashCommand::ActivateSkill(id))
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }
@@ -115,7 +125,7 @@ pub fn apply_action(app: &mut App, input: &mut InputBuffer, action: Action) -> A
             if let Some(prefix) = content.strip_prefix('/')
                 && let Some(completed) = slash::complete(prefix)
             {
-                input.set_content(completed);
+                input.set_content(&completed);
             }
         }
         Action::InsertChar(c) => input.insert_char(c),
@@ -526,5 +536,26 @@ mod tests {
         assert_eq!(outcome.slash_command, Some(SlashCommand::Resume));
         assert!(outcome.submit.is_none());
         assert!(app.messages().is_empty());
+    }
+
+    #[test]
+    fn parse_activate_skill_slash_command() {
+        assert_eq!(
+            parse_slash_command("/skills:code-review"),
+            Some(SlashCommand::ActivateSkill("code-review".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_activate_skill_with_hyphen_and_underscore() {
+        assert_eq!(
+            parse_slash_command("/skills:foo-bar_1"),
+            Some(SlashCommand::ActivateSkill("foo-bar_1".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_activate_skill_with_empty_id_returns_none() {
+        assert_eq!(parse_slash_command("/skills:"), None);
     }
 }

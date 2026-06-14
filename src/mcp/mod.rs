@@ -20,17 +20,36 @@ use crate::config::McpConfig;
 pub struct McpManager {
     tools: Vec<McpTool>,
     clients: Vec<McpClient>,
+    skills: Vec<crate::skills::Skill>,
 }
 
 impl McpManager {
-    pub async fn init(config: &McpConfig) -> Result<Self> {
+    pub async fn init(config: &McpConfig, skills: Vec<crate::skills::Skill>) -> Result<Self> {
         let mut tools = Vec::new();
         let mut clients = Vec::new();
 
         tracing::debug!(
             server_count = config.servers.len(),
+            skill_count = skills.len(),
             "initializing MCP manager"
         );
+
+        // Register built-in oxide_skill tool (always available)
+        tools.push(McpTool {
+            name: "oxide_skill".to_string(),
+            description: format!("Load the full instructions for a local skill from {}/", crate::skills::SKILLS_DIR),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "skill_id": {
+                        "type": "string",
+                        "description": "Skill id, e.g. \"code-review\" for .agents/skills/code-review.md"
+                    }
+                },
+                "required": ["skill_id"]
+            }),
+        });
+
         for server in &config.servers {
             tracing::debug!(server_name = %server.name, builtin = ?server.builtin, has_command = server.command.is_some(), "processing MCP server");
             if server.builtin == Some("bash".to_string()) {
@@ -78,7 +97,11 @@ impl McpManager {
         for tool in &tools {
             tracing::info!(tool_name = %tool.name, tool_desc = %tool.description, "MCP tool loaded");
         }
-        Ok(Self { tools, clients })
+        Ok(Self {
+            tools,
+            clients,
+            skills,
+        })
     }
 
     pub fn list_tools(&self) -> Vec<McpTool> {
@@ -90,6 +113,35 @@ impl McpManager {
         tool_name: &str,
         input: serde_json::Value,
     ) -> Result<ToolResult> {
+        if tool_name == "oxide_skill" {
+            let skill_id = input
+                .get("skill_id")
+                .and_then(|v| v.as_str())
+                .context("oxide_skill requires 'skill_id'")?;
+
+            // Security: validate skill ID format
+            anyhow::ensure!(
+                crate::skills::is_valid_skill_id(skill_id),
+                "invalid skill_id: must contain only alphanumeric characters, hyphens, or underscores"
+            );
+
+            // Look up skill by id in discovered skills to get absolute path
+            let skill = self
+                .skills
+                .iter()
+                .find(|s| s.id == skill_id)
+                .ok_or_else(|| anyhow::anyhow!("skill '{skill_id}' not found"))?;
+
+            let content = std::fs::read_to_string(&skill.path)
+                .with_context(|| format!("failed to read skill file: {}", skill.path.display()))?;
+
+            return Ok(ToolResult {
+                content,
+                is_error: false,
+                tool_use_id: String::new(),
+            });
+        }
+
         if tool_name == "oxide_bash" {
             let command = input
                 .get("command")
@@ -132,11 +184,15 @@ mod tests {
             }],
         };
 
-        let manager = McpManager::init(&config).await.expect("init");
+        let manager = McpManager::init(&config, vec![]).await.expect("init");
         let tools = manager.list_tools();
 
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].name, "oxide_bash");
+        // oxide_skill is always registered, so we should have 2 tools
+        assert_eq!(tools.len(), 2);
+        let bash_tool = tools.iter().find(|t| t.name == "oxide_bash");
+        assert!(bash_tool.is_some());
+        let skill_tool = tools.iter().find(|t| t.name == "oxide_skill");
+        assert!(skill_tool.is_some());
     }
 
     #[tokio::test]
@@ -152,7 +208,7 @@ mod tests {
             }],
         };
 
-        let mut manager = McpManager::init(&config).await.expect("init");
+        let mut manager = McpManager::init(&config, vec![]).await.expect("init");
         let result = manager
             .call_tool("oxide_bash", serde_json::json!({"command": "echo hello"}))
             .await
@@ -175,7 +231,7 @@ mod tests {
             }],
         };
 
-        let mut manager = McpManager::init(&config).await.expect("init");
+        let mut manager = McpManager::init(&config, vec![]).await.expect("init");
         let result = manager
             .call_tool("oxide_bash", serde_json::json!({"command": "ls -al /tmp"}))
             .await
@@ -186,5 +242,103 @@ mod tests {
         assert!(!result.content.is_empty());
         // Output should contain typical ls fields like 'total' or directory entries
         assert!(result.content.contains("total") || result.content.len() > 10);
+    }
+
+    #[tokio::test]
+    async fn oxide_skill_always_in_tool_list() {
+        let config = McpConfig {
+            auto_approve: false,
+            servers: vec![],
+        };
+
+        let manager = McpManager::init(&config, vec![]).await.expect("init");
+        let tools = manager.list_tools();
+
+        let oxide_skill = tools.iter().find(|t| t.name == "oxide_skill");
+        assert!(oxide_skill.is_some());
+    }
+
+    #[tokio::test]
+    async fn oxide_skill_rejects_path_traversal() {
+        let config = McpConfig {
+            auto_approve: false,
+            servers: vec![],
+        };
+
+        let mut manager = McpManager::init(&config, vec![]).await.expect("init");
+
+        // Test rejection of path traversal with ..
+        let result = manager
+            .call_tool(
+                "oxide_skill",
+                serde_json::json!({"skill_id": "../../../etc/passwd"}),
+            )
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid skill_id"));
+
+        // Test rejection of path traversal with /
+        let result = manager
+            .call_tool("oxide_skill", serde_json::json!({"skill_id": "etc/passwd"}))
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid skill_id"));
+
+        // Test rejection of empty string
+        let result = manager
+            .call_tool("oxide_skill", serde_json::json!({"skill_id": ""}))
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid skill_id"));
+    }
+
+    #[tokio::test]
+    async fn oxide_skill_accepts_valid_skill_ids() {
+        let config = McpConfig {
+            auto_approve: false,
+            servers: vec![],
+        };
+
+        let mut manager = McpManager::init(&config, vec![]).await.expect("init");
+
+        // Test acceptance of alphanumeric with hyphens
+        let result = manager
+            .call_tool(
+                "oxide_skill",
+                serde_json::json!({"skill_id": "code-review"}),
+            )
+            .await;
+        // Should fail with "not found" (skill doesn't exist), not "invalid skill_id"
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(!err_msg.contains("invalid skill_id"));
+        assert!(err_msg.contains("not found"));
+
+        // Test acceptance of alphanumeric with underscores
+        let result = manager
+            .call_tool("oxide_skill", serde_json::json!({"skill_id": "foo_bar_1"}))
+            .await;
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(!err_msg.contains("invalid skill_id"));
+        assert!(err_msg.contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn oxide_skill_missing_skill_returns_error() {
+        let config = McpConfig {
+            auto_approve: false,
+            servers: vec![],
+        };
+
+        let mut manager = McpManager::init(&config, vec![]).await.expect("init");
+        let result = manager
+            .call_tool(
+                "oxide_skill",
+                serde_json::json!({"skill_id": "nonexistent-skill"}),
+            )
+            .await;
+
+        assert!(result.is_err());
     }
 }
