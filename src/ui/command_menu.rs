@@ -168,15 +168,13 @@ mod tests {
         // So menu.y = 17 - menu_height
         // First item is at menu.y + 1 (after top border)
 
-        // Find the menu's top border position by looking for the first DarkGray bordered line
+        // Find the menu's top border by scanning for the top-left corner (┌)
         let mut menu_start_y = None;
         for y in 0..buf.area.height {
             for x in 0..buf.area.width {
                 if let Some(cell) = buf.cell((x, y)) {
-                    // Check for border color (DarkGray borders)
-                    if cell.fg == Color::DarkGray
-                        && (cell.symbol() == "┌" || cell.symbol() == "├" || cell.symbol() == "─")
-                    {
+                    // Check for the top-left corner of the border
+                    if cell.fg == Color::DarkGray && cell.symbol() == "┌" {
                         menu_start_y = Some(y);
                         break;
                     }
@@ -190,14 +188,23 @@ mod tests {
         let menu_start = menu_start_y.expect("Menu top border not found");
         let first_item_y = menu_start + 1; // First content row is right after top border
 
-        // Verify the first item row has DarkGray background on content cells
+        // Verify the first item row has DarkGray background on all content cells
         let mut highlight_cell_count = 0;
         let mut content_cell_count = 0;
         for x in 0..buf.area.width {
             if let Some(cell) = buf.cell((x, first_item_y)) {
                 let sym = cell.symbol();
-                // Skip borders (│, ├, ┤, etc.) - focus on content
-                if sym != "│" && sym != "├" && sym != "┤" && !sym.is_empty() {
+                // Skip borders (│, ├, ┤, ┌, ┐, └, ┘, ─) - focus on content
+                if sym != "│"
+                    && sym != "├"
+                    && sym != "┤"
+                    && sym != "┌"
+                    && sym != "┐"
+                    && sym != "└"
+                    && sym != "┘"
+                    && sym != "─"
+                    && !sym.is_empty()
+                {
                     content_cell_count += 1;
                     if cell.bg == Color::DarkGray {
                         highlight_cell_count += 1;
@@ -210,9 +217,9 @@ mod tests {
             content_cell_count > 0,
             "First item row has no content cells"
         );
-        assert!(
-            highlight_cell_count > 0,
-            "First item row should have DarkGray highlighted cells"
+        assert_eq!(
+            highlight_cell_count, content_cell_count,
+            "All content cells in first item row should have DarkGray background"
         );
 
         // Verify the first item contains expected command content
@@ -223,26 +230,39 @@ mod tests {
             row
         );
 
-        // Optionally verify the second item (if it exists) does NOT have the same highlight
-        if first_item_y + 1 < buf.area.height {
-            let second_item_y = first_item_y + 1;
-            let mut second_highlight_count = 0;
-            for x in 0..buf.area.width {
-                if let Some(cell) = buf.cell((x, second_item_y)) {
-                    let sym = cell.symbol();
-                    if sym != "│" && sym != "├" && sym != "┤" && !sym.is_empty() {
-                        if cell.bg == Color::DarkGray {
-                            second_highlight_count += 1;
-                        }
+        // Verify the second item (when it exists) does NOT have the same highlight
+        // The menu always has at least 2 items when rendering "/" with width 40, height 20
+        assert!(
+            first_item_y + 1 < buf.area.height,
+            "Test setup guarantees at least 2 items; buffer must have space for both"
+        );
+        let second_item_y = first_item_y + 1;
+        let mut second_highlight_count = 0;
+        for x in 0..buf.area.width {
+            if let Some(cell) = buf.cell((x, second_item_y)) {
+                let sym = cell.symbol();
+                // Skip borders (│, ├, ┤, ┌, ┐, └, ┘, ─) - focus on content
+                if sym != "│"
+                    && sym != "├"
+                    && sym != "┤"
+                    && sym != "┌"
+                    && sym != "┐"
+                    && sym != "└"
+                    && sym != "┘"
+                    && sym != "─"
+                    && !sym.is_empty()
+                {
+                    if cell.bg == Color::DarkGray {
+                        second_highlight_count += 1;
                     }
                 }
             }
-            // Second item should NOT have highlight (it's not selected)
-            assert_eq!(
-                second_highlight_count, 0,
-                "Second item row should not be highlighted (only first item should be)"
-            );
         }
+        // Second item should NOT have highlight (it's not selected)
+        assert_eq!(
+            second_highlight_count, 0,
+            "Second item row should not be highlighted (only first item should be)"
+        );
     }
 
     #[test]
