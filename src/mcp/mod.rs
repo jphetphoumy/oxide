@@ -281,6 +281,20 @@ impl McpManager {
 mod tests {
     use super::*;
 
+    #[test]
+    fn is_builtin_tool_recognises_oxide_tools() {
+        assert!(McpManager::is_builtin_tool("oxide_agent"));
+        assert!(McpManager::is_builtin_tool("oxide_bash"));
+        assert!(McpManager::is_builtin_tool("oxide_skill"));
+    }
+
+    #[test]
+    fn is_builtin_tool_rejects_unknown_tools() {
+        assert!(!McpManager::is_builtin_tool("my_custom_tool"));
+        assert!(!McpManager::is_builtin_tool(""));
+        assert!(!McpManager::is_builtin_tool("oxide_agent_extra"));
+    }
+
     #[tokio::test]
     async fn lists_builtin_bash_tool() {
         let config = McpConfig {

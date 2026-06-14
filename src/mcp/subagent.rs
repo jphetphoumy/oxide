@@ -81,6 +81,45 @@ pub async fn run_subagent(
     Ok(response_text)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_client() -> DustClient {
+        DustClient::new(
+            "https://dust.tt".to_string(),
+            "ws_test".to_string(),
+            "dust".to_string(),
+            crate::dust::client::UserContext::from_env(),
+        )
+        .expect("build client")
+    }
+
+    #[tokio::test]
+    async fn run_subagent_rejects_at_max_depth() {
+        let client = make_client();
+        let result =
+            run_subagent(&client, "hello".to_string(), None, MAX_SUBAGENT_DEPTH, None).await;
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("max depth"), "unexpected error: {msg}");
+    }
+
+    #[tokio::test]
+    async fn run_subagent_rejects_beyond_max_depth() {
+        let client = make_client();
+        let result = run_subagent(
+            &client,
+            "hello".to_string(),
+            None,
+            MAX_SUBAGENT_DEPTH + 5,
+            None,
+        )
+        .await;
+        assert!(result.is_err());
+    }
+}
+
 /// Helper to run a subagent with a timeout wrapper.
 pub async fn run_subagent_with_timeout(
     client: &DustClient,
