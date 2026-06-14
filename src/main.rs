@@ -105,8 +105,11 @@ async fn run_tui() -> io::Result<()> {
     // Discover and register skills at startup (before MCP manager init)
     let skills = skills::discover_skills(std::path::Path::new(skills::SKILLS_DIR));
 
+    // Create Dust client early so we can pass it to MCP manager
+    let mut client = DustClient::from_env().ok();
+
     let mcp_manager = Arc::new(tokio::sync::Mutex::new(
-        McpManager::init(config.mcp(), skills.clone())
+        McpManager::init(config.mcp(), skills.clone(), client.clone())
             .await
             .map_err(|error| io::Error::other(error.to_string()))?,
     ));
@@ -124,8 +127,10 @@ async fn run_tui() -> io::Result<()> {
     let mut input = InputBuffer::new();
     let (dust_tx, mut dust_rx) = mpsc::unbounded_channel::<DustEvent>();
     let (agent_tx, mut agent_rx) = mpsc::unbounded_channel::<Vec<AgentInfo>>();
-    let mut client = DustClient::from_env().ok();
     let mut pending_submit: Option<String> = None;
+
+    // Set event_tx on MCP manager for SubagentStarted/Finished events
+    mcp_manager.lock().await.set_event_tx(dust_tx.clone());
 
     // Spawn MCP transport: registers oxide-fs with Dust and receives tool calls via SSE
     let (mcp_server_id_tx, mut mcp_server_id_rx) = mpsc::unbounded_channel::<String>();
@@ -566,6 +571,12 @@ async fn run_tui() -> io::Result<()> {
                                 }
                             });
                         }
+                        DustEvent::SubagentStarted { .. } => {
+                            app.increment_subagent();
+                        }
+                        DustEvent::SubagentFinished { .. } => {
+                            app.decrement_subagent();
+                        }
                         _ => {}
                     }
                 } else {
@@ -619,6 +630,12 @@ async fn run_tui() -> io::Result<()> {
                         .collect();
                     app.restore_conversation(conversation_id, role_messages, title.as_deref());
                 }
+                DustEvent::SubagentStarted { .. } => {
+                    app.increment_subagent();
+                }
+                DustEvent::SubagentFinished { .. } => {
+                    app.decrement_subagent();
+                }
                 _ => {}
             }
         }
@@ -666,8 +683,10 @@ async fn run_mcp_server() -> Result<()> {
 
     let config = Config::load().map_err(|error| io::Error::other(error.to_string()))?;
     let skills = skills::discover_skills(std::path::Path::new(skills::SKILLS_DIR));
+    // Attempt to build a Dust client for subagent support (may fail if not logged in)
+    let dust_client = crate::dust::client::DustClient::from_env().ok();
     let mcp_manager = Arc::new(Mutex::new(
-        McpManager::init(config.mcp(), skills)
+        McpManager::init(config.mcp(), skills, dust_client)
             .await
             .map_err(|error| io::Error::other(error.to_string()))?,
     ));

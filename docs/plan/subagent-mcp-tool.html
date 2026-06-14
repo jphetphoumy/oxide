@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oxide — Subagent MCP Tool</title>
+  <style>
+    /* Oxide Plan Design System - Color Palette */
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --text-dim: #484f58;
+
+      --accent: #58a6ff;
+      --accent-dim: #1f6feb33;
+      --accent2: #f78166;
+
+      --green: #3fb950;
+      --green-dim: #23863533;
+      --yellow: #d29922;
+      --yellow-dim: #d2992233;
+      --red: #f85149;
+      --red-dim: #f8514933;
+      --purple: #bc8cff;
+      --purple-dim: #bc8cff33;
+      --orange: #db6d28;
+
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 2rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
+      margin-bottom: 1.5rem;
+      color: #fff;
+    }
+
+    h1 span { color: var(--accent2); }
+
+    h2 {
+      font-size: 1.3rem;
+      color: var(--accent);
+      margin: 2rem 0 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding-bottom: 0.3rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h2 .num {
+      background: var(--accent);
+      color: var(--bg);
+      border-radius: 50%;
+      width: 1.6rem;
+      height: 1.6rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    h3 { font-size: 1rem; color: var(--purple); margin: 1rem 0 0.4rem; }
+    h4 { font-size: 0.95rem; color: var(--yellow); margin: 0.8rem 0 0.3rem; }
+
+    p, li { color: var(--text); margin-bottom: 0.4rem; }
+    ul, ol { padding-left: 1.4rem; margin: 0.3rem 0 0.8rem; }
+    li { margin: 0.25rem 0; }
+
+    code {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.15rem 0.4rem;
+      font-size: 0.9em;
+      color: var(--accent2);
+      font-family: var(--font-mono);
+    }
+
+    pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      overflow-x: auto;
+      margin: 0.5rem 0 1rem;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      font-family: var(--font-mono);
+    }
+
+    pre code { background: none; border: none; padding: 0; color: var(--text); }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.2rem;
+      margin: 0.75rem 0;
+    }
+
+    .card-success { background: var(--green-dim); border-color: var(--green); border-left: 3px solid var(--green); }
+    .card-warning { background: var(--yellow-dim); border-color: var(--yellow); border-left: 3px solid var(--yellow); }
+    .card-error   { background: var(--red-dim);    border-color: var(--red);    border-left: 3px solid var(--red); }
+    .card-info    { background: var(--purple-dim); border-color: var(--purple); border-left: 3px solid var(--purple); }
+    .card-accent  { background: var(--accent-dim); border-color: var(--accent); border-left: 3px solid var(--accent); }
+
+    .objective {
+      border-left: 3px solid var(--accent);
+      padding: 0.75rem 1rem;
+      background: var(--surface);
+      border-radius: 0 8px 8px 0;
+      margin: 1rem 0;
+    }
+
+    .flow-diagram {
+      background: #000;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      white-space: pre;
+      line-height: 1.4;
+      color: var(--text-muted);
+      overflow-x: auto;
+      margin: 0.5rem 0 1rem;
+    }
+
+    .flow-diagram .highlight { color: var(--accent); }
+    .flow-diagram .green { color: var(--green); }
+    .flow-diagram .orange { color: var(--orange); }
+    .flow-diagram .dim { color: var(--text-dim); }
+    .flow-diagram .purple { color: var(--purple); }
+    .flow-diagram .yellow { color: var(--yellow); }
+
+    .tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      padding: 0.1rem 0.5rem;
+      border-radius: 12px;
+      font-weight: 600;
+      margin-right: 0.3rem;
+      margin-bottom: 0.3rem;
+    }
+
+    .tag-dep  { background: #1f2937; color: var(--yellow); border: 1px solid var(--yellow); }
+    .tag-new  { background: #1f2937; color: var(--purple); border: 1px solid var(--purple); }
+    .tag-mod  { background: #1f2937; color: var(--accent); border: 1px solid var(--accent); }
+    .tag-fix  { background: #1f2937; color: var(--green);  border: 1px solid var(--green); }
+
+    table { width: 100%; border-collapse: collapse; margin: 0.5rem 0 1rem; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border: 1px solid var(--border); font-size: 0.9rem; }
+    th { background: var(--surface); color: var(--accent); font-weight: 600; }
+    tr:hover { background: rgba(88, 166, 255, 0.05); }
+
+    .endpoint {
+      font-family: var(--font-mono);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.6rem 1rem;
+      margin: 0.4rem 0;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .method {
+      font-weight: 700;
+      font-size: 0.8rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    .method-get    { background: var(--accent); color: var(--bg); }
+    .method-post   { background: var(--orange); color: var(--bg); }
+    .method-put    { background: var(--yellow); color: var(--bg); }
+    .method-delete { background: var(--red);    color: var(--bg); }
+
+    .endpoint-path { color: var(--text-muted); font-size: 0.85rem; }
+
+    section { margin-bottom: 2rem; }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #ffffff; --surface: #f6f8fa; --border: #e1e4e8;
+        --text: #24292e; --text-muted: #6a737d; --text-dim: #959da5;
+        --accent: #0366d6; --accent-dim: #f1f8ff; --accent2: #d73a49;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<h1><span>Oxide</span> Subagent MCP Tool</h1>
+
+<div class="objective">
+  <strong>Goal:</strong> Expose an <code>oxide_agent</code> MCP tool that spawns a fresh Dust conversation, sends a prompt to a chosen agent, streams the full response, and returns the final text as the tool result — enabling recursive agent orchestration from within a chat session.<br>
+  <strong>Scope:</strong> New built-in tool registered in <code>McpManager</code>, new <code>SubagentRunner</code> module that wraps the existing <code>DustClient</code> message flow, TUI status indicator for in-flight subagent calls.<br>
+  <strong>Out of scope:</strong> Multi-turn subagent conversations, streaming tokens back to the parent conversation in real time, per-tool configurable auto-approve (future extension).
+</div>
+
+<section>
+  <h2><span class="num">1</span> Feature Overview</h2>
+
+  <div class="card">
+    <p>The feature mirrors Claude Code's <code>Agent</code> tool. When the Dust agent (or any MCP client connected to oxide's built-in MCP server) calls <code>oxide_agent</code>, oxide will:</p>
+    <ol>
+      <li>Create a brand-new Dust conversation with the target agent.</li>
+      <li>Send the supplied prompt as the first (and only) user message.</li>
+      <li>Wait for the agent to finish (streaming internally, discarding individual tokens).</li>
+      <li>Return the final text as the MCP tool result string.</li>
+    </ol>
+    <p>The call is fully async and non-blocking for the TUI event loop: it runs in a <code>tokio::spawn</code> task just like all other tool executions today.</p>
+  </div>
+
+  <div class="card-info card">
+    <h3>Why a built-in tool, not an external MCP server?</h3>
+    <p>The <code>oxide_bash</code> and <code>oxide_skill</code> tools are both built into <code>McpManager</code> and always available without extra configuration. The subagent tool needs authenticated <code>DustClient</code> access — which only the oxide process has — so it must also be built-in. It follows the exact same registration pattern.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">2</span> Architecture</h2>
+
+  <div class="flow-diagram"><span class="highlight">oxide_agent</span> tool call arrives (from Dust SSE or MCP transport)
+  <span class="dim">|</span>
+  <span class="dim">v</span>
+<span class="purple">McpManager::call_tool("oxide_agent", { prompt, agent_id?, description? })</span>
+  <span class="dim">|</span>
+  <span class="dim">v</span>
+<span class="yellow">SubagentRunner::run(client, prompt, agent_id)</span>           runs in tokio task
+  <span class="dim">|</span>
+  ├── <span class="orange">POST</span> /api/v1/w/{ws}/assistant/conversations   (create conversation)
+  ├── <span class="dim">poll</span> GET  /api/v1/w/{ws}/assistant/conversations/{id}  (wait for agent msg id)
+  ├── <span class="dim">open</span> GET  /api/sse/v1/w/{ws}/assistant/conversations/{id}/messages/{id}/events
+  └── <span class="dim">collect tokens until AgentMessageSuccess</span>
+  <span class="dim">|</span>
+  <span class="dim">v</span>
+<span class="green">ToolResult { content: "...final agent response...", is_error: false }</span>
+  <span class="dim">|</span>
+  <span class="dim">v</span>
+returned to MCP caller as JSON-RPC response</div>
+
+  <div class="card">
+    <h3>Integration point: two call paths</h3>
+    <p>The <code>oxide_agent</code> tool can be invoked from two different paths, both already handled by the existing infrastructure:</p>
+    <ul>
+      <li><strong>Old inline path</strong> (<code>DustEvent::ToolUse</code>): Agent SSE emits a tool call, oxide executes it via <code>McpManager::call_tool</code>, submits result via <code>/tool_results</code>.</li>
+      <li><strong>MCP transport path</strong> (<code>DustEvent::McpToolUse</code>): Dust calls oxide's registered MCP server via <code>/mcp/requests</code> SSE, oxide executes and posts via <code>/mcp/results</code>.</li>
+    </ul>
+    <p>Both paths go through <code>McpManager::call_tool</code>, so registering <code>oxide_agent</code> once there covers both automatically.</p>
+  </div>
+
+  <div class="card-warning card">
+    <h3>DustClient availability in McpManager</h3>
+    <p>Currently <code>McpManager::call_tool</code> is a pure function with no Dust client dependency — it handles bash commands and skill file reads. The subagent tool requires an authenticated <code>DustClient</code>. This is the key architectural decision: we must inject a <code>DustClient</code> (or its config) into <code>McpManager</code> at construction time.</p>
+    <p><strong>Decision:</strong> Add an <code>Option&lt;DustClient&gt;</code> field to <code>McpManager</code>. The TUI path sets it from <code>DustClient::from_env()</code>. The <code>mcp-server</code> CLI path also has access to the same env/keyring, so it can construct one too.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">3</span> New Module: <code>src/mcp/subagent.rs</code></h2>
+
+  <span class="tag tag-new">NEW FILE</span>
+
+  <div class="card">
+    <p>This module contains <code>SubagentRunner</code> — the async function that orchestrates a complete one-shot Dust conversation and returns the final text.</p>
+  </div>
+
+  <pre><code>// src/mcp/subagent.rs
+
+use anyhow::{Result, anyhow};
+use tokio::sync::mpsc;
+
+use crate::dust::client::{DustClient, DustEvent};
+
+/// Maximum nesting depth for local `oxide_agent` calls.
+pub const MAX_SUBAGENT_DEPTH: u32 = 3;
+
+/// Run a one-shot conversation with a Dust agent and collect the full response.
+///
+/// - Creates a fresh conversation (no reuse of the caller's conversation).
+/// - Buffers tokens; does not forward streaming events to the TUI.
+/// - Returns the complete agent response text on success.
+/// - `depth` is the current nesting level (0 = top-level call from user session).
+///   If `depth` >= `MAX_SUBAGENT_DEPTH`, returns an error immediately.
+pub async fn run_subagent(
+    client: &DustClient,
+    prompt: String,
+    agent_id: Option&lt;String&gt;,
+    depth: u32,
+) -> Result&lt;String&gt; {
+    if depth >= MAX_SUBAGENT_DEPTH {
+        return Err(anyhow!(
+            "oxide_agent max depth ({MAX_SUBAGENT_DEPTH}) exceeded — cannot spawn further subagents"
+        ));
+    }
+
+    // Clone the client and optionally override the agent ID.
+    let mut subagent_client = client.clone();
+    if let Some(id) = agent_id {
+        subagent_client.set_agent(id);
+    }
+
+    // Use an unbounded channel — the subagent runner is the only sender.
+    let (tx, mut rx) = mpsc::unbounded_channel::&lt;DustEvent&gt;();
+
+    // Run the full message flow in the current task (already inside a tokio::spawn).
+    // Pass empty active_skills — subagent conversations never inherit parent skills.
+    // Pass depth + 1 so any nested oxide_agent calls know their depth.
+    let flow = subagent_client
+        .send_message_flow_with_skills(None, prompt, tx, &amp;[], depth + 1)
+        .await;
+
+    // Drain all events from the channel (send_message_flow is done by now).
+    let mut response_text = String::new();
+    while let Ok(event) = rx.try_recv() {
+        match event {
+            DustEvent::Complete(Some(content), _) =&gt; {
+                response_text = content;
+            }
+            DustEvent::Error(e) =&gt; {
+                return Err(anyhow!("subagent error: {e}"));
+            }
+            DustEvent::Token(token, _) =&gt; {
+                // Fallback: accumulate tokens if Complete doesn't include full content.
+                response_text.push_str(&amp;token);
+            }
+            _ =&gt; {}
+        }
+    }
+
+    // Propagate any transport-level error from the flow itself.
+    flow?;
+
+    if response_text.is_empty() {
+        return Err(anyhow!("subagent returned empty response"));
+    }
+
+    Ok(response_text)
+}</code></pre>
+
+  <div class="card-info card">
+    <h3>Why drain after await, not concurrently?</h3>
+    <p><code>send_message_flow_with_skills</code> sends events and <code>await</code>s to completion before returning. All events are in the channel by the time the future resolves. Draining with <code>try_recv</code> after the await is both simpler and sufficient — no need for a concurrent receiver task.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">4</span> Changes to <code>src/mcp/mod.rs</code></h2>
+
+  <span class="tag tag-mod">MODIFIED</span>
+
+  <h3>4.1 Add DustClient field to McpManager</h3>
+
+  <pre><code>pub struct McpManager {
+    tools: Vec&lt;McpTool&gt;,
+    clients: Vec&lt;McpClient&gt;,
+    skills: Vec&lt;crate::skills::Skill&gt;,
+    dust_client: Option&lt;crate::dust::client::DustClient&gt;,  // NEW
+    /// Current subagent nesting depth for this manager instance.
+    /// 0 = top-level session. Passed into run_subagent so it can enforce MAX_SUBAGENT_DEPTH.
+    current_depth: u32,                                     // NEW
+}</code></pre>
+
+  <div class="card-info card">
+    <h3>Depth threading</h3>
+    <p>When <code>run_subagent</code> internally creates a Dust conversation and that conversation calls <code>oxide_agent</code> again, the nested call arrives via the normal MCP/SSE tool dispatch path. To propagate depth, <code>run_subagent</code> must construct a new <code>McpManager</code> instance (or a lightweight <code>SubagentContext</code>) with <code>current_depth = depth + 1</code> and use that manager for the nested call. This ensures depth is accurately tracked regardless of how many levels deep the recursion goes.</p>
+    <p>Remote subagents (calls to external MCP servers that the Dust agent has configured in its own workspace) are <em>not</em> subject to the local depth counter. The depth limit only applies to calls that flow back through oxide's own <code>oxide_agent</code> built-in tool.</p>
+  </div>
+
+  <h3>4.2 Update McpManager::init signature</h3>
+
+  <pre><code>impl McpManager {
+    pub async fn init(
+        config: &amp;McpConfig,
+        skills: Vec&lt;crate::skills::Skill&gt;,
+        dust_client: Option&lt;crate::dust::client::DustClient&gt;,  // NEW param
+    ) -&gt; Result&lt;Self&gt; {
+        // ... existing logic unchanged ...
+
+        // Register built-in oxide_agent tool (always available when client present)
+        if dust_client.is_some() {
+            tools.push(McpTool {
+                name: "oxide_agent".to_string(),
+                description: "Spawn a new one-shot conversation with a Dust agent and return \
+                              the agent's full response. Use this to delegate a subtask to a \
+                              specialised agent. The subagent starts fresh (no shared context).".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "prompt": {
+                            "type": "string",
+                            "description": "The full prompt to send to the subagent."
+                        },
+                        "agent_id": {
+                            "type": "string",
+                            "description": "Optional Dust agent sId or slug. Defaults to the current session agent."
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Optional human-readable description of what this subagent call is doing (shown in the TUI)."
+                        }
+                    },
+                    "required": ["prompt"]
+                }),
+            });
+        }
+
+        Ok(Self { tools, clients, skills, dust_client, current_depth: 0 })
+    }</code></pre>
+
+  <h3>4.3 Handle oxide_agent in call_tool</h3>
+
+  <pre><code">    pub async fn call_tool(
+        &amp;mut self,
+        tool_name: &amp;str,
+        input: serde_json::Value,
+    ) -&gt; Result&lt;ToolResult&gt; {
+        // ... existing oxide_skill and oxide_bash branches ...
+
+        if tool_name == "oxide_agent" {
+            let prompt = input
+                .get("prompt")
+                .and_then(|v| v.as_str())
+                .context("oxide_agent requires 'prompt'")?
+                .to_string();
+
+            let agent_id = input
+                .get("agent_id")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string);
+
+            // depth is threaded through from the call context; defaults to 0 if absent
+            // (meaning this call came from the top-level session, not from a subagent).
+            let depth = self.current_depth;
+
+            let client = self
+                .dust_client
+                .as_ref()
+                .context("oxide_agent: no Dust client available")?
+                .clone();
+
+            let result = crate::mcp::subagent::run_subagent(&amp;client, prompt, agent_id, depth).await;
+
+            return match result {
+                Ok(text) =&gt; Ok(ToolResult {
+                    content: text,
+                    is_error: false,
+                    tool_use_id: String::new(),
+                }),
+                Err(e) =&gt; Ok(ToolResult {
+                    content: format!("subagent failed: {e}"),
+                    is_error: true,
+                    tool_use_id: String::new(),
+                }),
+            };
+        }
+
+        // ... rest of existing logic (external MCP clients) ...
+    }</code></pre>
+
+  <h3>4.4 Export the subagent module</h3>
+
+  <pre><code>// src/mcp/mod.rs — add at top:
+pub mod subagent;</code></pre>
+</section>
+
+<section>
+  <h2><span class="num">5</span> Changes to call sites: <code>src/main.rs</code></h2>
+
+  <span class="tag tag-mod">MODIFIED</span>
+
+  <div class="card">
+    <p>Two places call <code>McpManager::init</code>: the TUI path (<code>run_tui</code>) and the MCP server path (<code>run_mcp_server</code>). Both need to pass the Dust client.</p>
+  </div>
+
+  <h3>5.1 run_tui</h3>
+
+  <pre><code">    // Existing code builds `client: Option&lt;DustClient&gt;` from DustClient::from_env().ok()
+    // Pass a clone to McpManager::init:
+    let mcp_manager = Arc::new(tokio::sync::Mutex::new(
+        McpManager::init(config.mcp(), skills.clone(), client.clone())
+            .await
+            .map_err(|error| io::Error::other(error.to_string()))?,
+    ));</code></pre>
+
+  <h3>5.2 run_mcp_server</h3>
+
+  <pre><code">    async fn run_mcp_server() -&gt; Result&lt;()&gt; {
+        let config = Config::load()?;
+        let skills = skills::discover_skills(std::path::Path::new(skills::SKILLS_DIR));
+        // Attempt to build a Dust client for subagent support (may fail if not logged in).
+        let dust_client = crate::dust::client::DustClient::from_env().ok();
+        let mcp_manager = Arc::new(Mutex::new(
+            McpManager::init(config.mcp(), skills, dust_client)
+                .await?,
+        ));
+        let server = McpJsonRpcServer::new(mcp_manager);
+        server.run().await?;
+        Ok(())
+    }</code></pre>
+</section>
+
+<section>
+  <h2><span class="num">6</span> TUI Status Indicator</h2>
+
+  <span class="tag tag-mod">MODIFIED</span>
+  <span class="tag tag-new">MINOR UI CHANGE</span>
+
+  <div class="card">
+    <p>The user should know when a subagent call is in flight (these can take 10–30 seconds). The simplest approach is to track the count of in-flight subagent calls in <code>App</code> and render a status note alongside the existing <code>"streaming..."</code> text.</p>
+  </div>
+
+  <h3>6.1 App state: in-flight subagent counter</h3>
+
+  <p>In <code>src/app.rs</code>, add a counter to <code>App</code>:</p>
+
+  <pre><code>pub struct App {
+    // ... existing fields ...
+    subagent_count: usize,   // NEW: number of in-flight oxide_agent calls
+}
+
+impl App {
+    pub fn increment_subagent(&amp;mut self) { self.subagent_count += 1; }
+    pub fn decrement_subagent(&amp;mut self) { self.subagent_count = self.subagent_count.saturating_sub(1); }
+    pub const fn subagent_count(&amp;) -&gt; usize { self.subagent_count }
+}</code></pre>
+
+  <h3>6.2 DustEvent variants for subagent lifecycle</h3>
+
+  <p>Add two variants to <code>DustEvent</code> in <code>src/dust/client.rs</code>:</p>
+
+  <pre><code>pub enum DustEvent {
+    // ... existing variants ...
+    SubagentStarted,    // increment counter in TUI
+    SubagentFinished,   // decrement counter in TUI
+}</code></pre>
+
+  <h3>6.3 Emitting events from McpManager</h3>
+
+  <p>The challenge is that <code>McpManager::call_tool</code> does not have access to the <code>dust_tx</code> MPSC sender. The cleanest solution is to add an optional <code>event_tx</code> field to <code>McpManager</code>:</p>
+
+  <pre><code>pub struct McpManager {
+    // ... existing fields ...
+    event_tx: Option&lt;tokio::sync::mpsc::UnboundedSender&lt;crate::dust::client::DustEvent&gt;&gt;,
+}
+
+impl McpManager {
+    pub fn set_event_tx(&amp;mut self, tx: tokio::sync::mpsc::UnboundedSender&lt;crate::dust::client::DustEvent&gt;) {
+        self.event_tx = Some(tx);
+    }
+}</code></pre>
+
+  <p>In <code>call_tool</code> for <code>oxide_agent</code>:</p>
+
+  <pre><code">        if let Some(ref tx) = self.event_tx {
+            let _ = tx.send(DustEvent::SubagentStarted);
+        }
+        let result = crate::mcp::subagent::run_subagent(&amp;client, prompt, agent_id).await;
+        if let Some(ref tx) = self.event_tx {
+            let _ = tx.send(DustEvent::SubagentFinished);
+        }</code></pre>
+
+  <p>In <code>main.rs</code>, after constructing the manager:</p>
+
+  <pre><code">        mcp_manager.lock().await.set_event_tx(dust_tx.clone());</code></pre>
+
+  <h3>6.4 Status line rendering</h3>
+
+  <p>In <code>src/ui/layout.rs</code>, update the status line to show subagent count:</p>
+
+  <pre><code">    let subagent_text = if app.subagent_count() > 0 {
+        format!(" [{} subagent(s) running]", app.subagent_count())
+    } else {
+        String::new()
+    };</code></pre>
+
+  <p>Add this span with purple styling (same color as skills) next to the streaming indicator.</p>
+</section>
+
+<section>
+  <h2><span class="num">7</span> Dust API: What the Subagent Uses</h2>
+
+  <div class="card">
+    <p>The subagent runner reuses the existing <code>send_message_flow_with_skills</code> method which already orchestrates the full create-poll-stream flow. No new Dust API endpoints are needed.</p>
+  </div>
+
+  <table>
+    <tr><th>Method</th><th>Endpoint</th><th>Purpose</th><th>Existing?</th></tr>
+    <tr>
+      <td><span class="method method-post">POST</span></td>
+      <td><code>/api/v1/w/{ws}/assistant/conversations</code></td>
+      <td>Create fresh subagent conversation</td>
+      <td>Yes — <code>create_conversation_with_skills</code></td>
+    </tr>
+    <tr>
+      <td><span class="method method-get">GET</span></td>
+      <td><code>/api/v1/w/{ws}/assistant/conversations/{id}</code></td>
+      <td>Poll for agent message ID</td>
+      <td>Yes — <code>get_conversation</code></td>
+    </tr>
+    <tr>
+      <td><span class="method method-get">GET</span></td>
+      <td><code>/api/sse/v1/w/{ws}/assistant/conversations/{id}/messages/{id}/events</code></td>
+      <td>Stream agent response</td>
+      <td>Yes — <code>stream_events</code></td>
+    </tr>
+  </table>
+
+  <div class="card-info card">
+    <h3>Agent ID resolution for subagents</h3>
+    <p>The <code>agent_id</code> parameter in the tool schema is optional. When absent, <code>SubagentRunner</code> uses whatever agent is set on the cloned client (the main session's agent). When present, it calls <code>client.set_agent(id)</code> on the clone. The caller can pass any valid Dust agent <code>sId</code> or slug recognized by the Dust workspace.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">8</span> Configuration</h2>
+
+  <span class="tag tag-mod">MODIFIED</span>
+
+  <div class="card">
+    <p>No new TOML configuration keys are required for the initial implementation. The subagent tool inherits the authenticated session's workspace and Dust API URL automatically.</p>
+    <p>A future enhancement could add a <code>[dust] default_subagent_id</code> key, but for now the tool's <code>agent_id</code> parameter covers that use case.</p>
+    <p>The maximum subagent nesting depth defaults to <code>3</code> (defined as <code>MAX_SUBAGENT_DEPTH</code> in <code>src/mcp/subagent.rs</code>). A future enhancement could expose this as a <code>[mcp] max_subagent_depth</code> TOML key.</p>
+  </div>
+
+  <div class="card-info card">
+    <h3>Tool visibility</h3>
+    <p>The <code>oxide_agent</code> tool is only registered when a <code>DustClient</code> is available (i.e., the user is logged in). If the user is not authenticated, <code>McpManager::init</code> receives <code>None</code> for the client, and the tool is silently omitted from the tool list — consistent with how the bash tool is only shown when configured.</p>
+  </div>
+
+  <div class="card-accent card">
+    <h3>Auto-approval</h3>
+    <p><code>oxide_agent</code> is added to the built-in auto-approve list alongside <code>oxide_bash</code>. It is never shown in the interactive approval UI. This is intentional: subagent calls are made by Dust agents as part of automated workflows, and pausing to ask the user for each spawn defeats the purpose of agent orchestration.</p>
+    <p>The auto-approve list lives in <code>src/mcp/mod.rs</code> (or wherever the existing approval gate is implemented). Add <code>"oxide_agent"</code> to that list. Per-tool configurable auto-approve (letting users whitelist arbitrary tool names in <code>config.toml</code>) is a future extension and is out of scope here.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">9</span> Error Handling and Timeouts</h2>
+
+  <div class="card-warning card">
+    <h3>Timeout strategy</h3>
+    <p>The existing <code>wait_for_agent_message</code> already has a 30-second timeout (100 polls × 300ms). For subagent calls, this is the main risk: a stuck subagent will block its <code>tokio::spawn</code> task for up to 30 seconds.</p>
+    <p><strong>Mitigation:</strong> Wrap <code>run_subagent</code> in <code>tokio::time::timeout</code> with a configurable duration (default 120 seconds — generous enough for complex agents).</p>
+  </div>
+
+  <pre><code">    const SUBAGENT_TIMEOUT: Duration = Duration::from_secs(120);
+
+    let result = tokio::time::timeout(
+        SUBAGENT_TIMEOUT,
+        crate::mcp::subagent::run_subagent(&amp;client, prompt, agent_id, depth),
+    )
+    .await
+    .unwrap_or_else(|_| Err(anyhow::anyhow!("subagent timed out after 120s")));</code></pre>
+
+  <div class="card">
+    <h3>Error propagation</h3>
+    <ul>
+      <li>Dust API errors (HTTP errors, SSE parse failures) surface as <code>is_error: true</code> tool results with the error message as content. The calling agent can decide how to react.</li>
+      <li>Auth errors (expired token) are handled inside <code>token_refresh::get_valid_token()</code> which auto-refreshes. If that fails, the error propagates up to the tool result.</li>
+      <li>The TUI itself never panics or crashes — the subagent runs in a spawned task.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">10</span> Tool Schema (Final)</h2>
+
+  <pre><code>{
+  "name": "oxide_agent",
+  "description": "Spawn a new one-shot conversation with a Dust agent and return the agent's full response. Use this to delegate a subtask to a specialised agent. The subagent starts fresh with no shared conversation context.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "prompt": {
+        "type": "string",
+        "description": "The full prompt to send to the subagent. Include all necessary context since the subagent has no access to the current conversation."
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Optional Dust agent sId or slug to use. Defaults to the current session's active agent."
+      },
+      "description": {
+        "type": "string",
+        "description": "Optional human-readable description of this subagent task, shown in the oxide TUI status bar."
+      }
+    },
+    "required": ["prompt"]
+  }
+}</code></pre>
+
+  <div class="card-info card">
+    <h3>The <code>description</code> field</h3>
+    <p>The <code>description</code> parameter serves two purposes:</p>
+    <ol>
+      <li><strong>TUI status bar</strong> — shown while the subagent is running (e.g., <code>"[subagent: reviewing code...]"</code>), making long-running calls transparent to the user.</li>
+      <li><strong>Conversation title</strong> — used as the title of the Dust conversation created for this subagent call (prefixed with <code>[subagent]</code>), so it shows up clearly when the user runs <code>/resume</code>. If omitted, the first 60 characters of the prompt are used instead.</li>
+    </ol>
+    <p>It does not otherwise affect the Dust API call or the prompt sent to the agent.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">11</span> File-by-File Change Summary</h2>
+
+  <table>
+    <tr><th>File</th><th>Change</th><th>Size</th></tr>
+    <tr>
+      <td><code>src/mcp/subagent.rs</code></td>
+      <td><span class="tag tag-new">NEW</span> <code>run_subagent</code> async function + <code>MAX_SUBAGENT_DEPTH</code> constant; depth guard; conversation title derivation</td>
+      <td>~75 lines</td>
+    </tr>
+    <tr>
+      <td><code>src/mcp/mod.rs</code></td>
+      <td><span class="tag tag-mod">MODIFIED</span> Add <code>dust_client</code>, <code>event_tx</code>, <code>current_depth</code> fields; register + dispatch <code>oxide_agent</code>; add to auto-approve list; update <code>init</code> signature</td>
+      <td>+70 lines</td>
+    </tr>
+    <tr>
+      <td><code>src/dust/client.rs</code></td>
+      <td><span class="tag tag-mod">MODIFIED</span> Add <code>SubagentStarted</code> / <code>SubagentFinished</code> variants to <code>DustEvent</code></td>
+      <td>+4 lines</td>
+    </tr>
+    <tr>
+      <td><code>src/app.rs</code></td>
+      <td><span class="tag tag-mod">MODIFIED</span> Add <code>subagent_count</code> field + <code>increment_subagent</code> / <code>decrement_subagent</code> / <code>subagent_count</code> methods</td>
+      <td>+12 lines</td>
+    </tr>
+    <tr>
+      <td><code>src/main.rs</code></td>
+      <td><span class="tag tag-mod">MODIFIED</span> Pass <code>client.clone()</code> and <code>dust_tx.clone()</code> to <code>McpManager::init</code>; handle <code>SubagentStarted</code> / <code>SubagentFinished</code> events; fix <code>run_mcp_server</code></td>
+      <td>+20 lines</td>
+    </tr>
+    <tr>
+      <td><code>src/ui/layout.rs</code></td>
+      <td><span class="tag tag-mod">MODIFIED</span> Show subagent count in status bar when > 0</td>
+      <td>+10 lines</td>
+    </tr>
+  </table>
+</section>
+
+<section>
+  <h2><span class="num">12</span> Implementation Milestones</h2>
+
+  <div class="card">
+    <h3>Milestone 1 — Core subagent execution (no UI)</h3>
+    <ol>
+      <li>Create <code>src/mcp/subagent.rs</code> with <code>run_subagent</code> and <code>MAX_SUBAGENT_DEPTH</code>.</li>
+      <li>Add <code>pub mod subagent;</code> to <code>src/mcp/mod.rs</code>.</li>
+      <li>Add <code>dust_client: Option&lt;DustClient&gt;</code> and <code>current_depth: u32</code> to <code>McpManager</code>.</li>
+      <li>Update <code>McpManager::init</code> to accept and store the client; initialize <code>current_depth</code> to <code>0</code>.</li>
+      <li>Register <code>oxide_agent</code> tool schema in <code>init</code> when client is <code>Some</code>.</li>
+      <li>Handle <code>"oxide_agent"</code> branch in <code>call_tool</code>: read <code>self.current_depth</code>, call <code>run_subagent(..., depth)</code>, wrap result.</li>
+      <li>Add <code>oxide_agent</code> to the built-in auto-approve list (no user approval prompt).</li>
+      <li>Thread depth into the subagent's <code>McpManager</code> instance (<code>current_depth = depth + 1</code>).</li>
+      <li>Pass derived <code>[subagent] {description or prompt}</code> title when creating the conversation.</li>
+      <li>Update both <code>McpManager::init</code> call sites in <code>main.rs</code>.</li>
+      <li>Run <code>cargo check</code> and <code>cargo test</code>.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h3>Milestone 2 — TUI status indicator</h3>
+    <ol>
+      <li>Add <code>SubagentStarted</code> / <code>SubagentFinished</code> to <code>DustEvent</code>.</li>
+      <li>Add <code>event_tx</code> field to <code>McpManager</code> + <code>set_event_tx</code> method.</li>
+      <li>Emit <code>SubagentStarted</code> / <code>SubagentFinished</code> around <code>run_subagent</code> call.</li>
+      <li>Call <code>mcp_manager.lock().await.set_event_tx(dust_tx.clone())</code> in <code>run_tui</code>.</li>
+      <li>Add <code>subagent_count</code> to <code>App</code> with increment/decrement methods.</li>
+      <li>Handle the two new <code>DustEvent</code> variants in the main <code>tokio::select!</code> loop.</li>
+      <li>Update <code>src/ui/layout.rs</code> status bar rendering.</li>
+      <li>Run <code>cargo test</code> and manual tmux test.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h3>Milestone 3 — Description in status bar</h3>
+    <ol>
+      <li>Change <code>SubagentStarted</code> to carry <code>Option&lt;String&gt;</code> (the description).</li>
+      <li>Store descriptions in <code>App</code> as a <code>Vec&lt;String&gt;</code> parallel to the counter.</li>
+      <li>Show the most recent description in the status bar: <code>[subagent: ...]</code>.</li>
+      <li>Pop the description on <code>SubagentFinished</code>.</li>
+    </ol>
+  </div>
+
+  <div class="card-success card">
+    <h3>Milestone 4 — Polish and tests</h3>
+    <ul>
+      <li>Add unit test for <code>run_subagent</code> using a mock that returns a fixed <code>DustEvent::Complete</code>.</li>
+      <li>Add unit test for <code>McpManager::call_tool("oxide_agent", ...)</code> with a mock client.</li>
+      <li>Add unit test for subagent timeout path.</li>
+      <li>Update the test in <code>mod tests</code> that counts tools to account for <code>oxide_agent</code>.</li>
+      <li>Run full <code>cargo clippy -- -W clippy::all -W clippy::pedantic -W clippy::nursery</code>.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">13</span> Testing Strategy</h2>
+
+  <h3>Unit tests</h3>
+
+  <div class="card">
+    <ul>
+      <li><strong><code>subagent_runner_returns_complete_content</code></strong>: Create a mock <code>DustClient</code> (or inject via trait) that immediately sends <code>DustEvent::Complete(Some("hello"), None)</code>. Assert the return is <code>Ok("hello")</code>.</li>
+      <li><strong><code>subagent_runner_accumulates_tokens_on_no_content</code></strong>: Mock sends <code>Token("foo")</code>, <code>Token("bar")</code>, then <code>Complete(None, None)</code>. Assert result is <code>"foobar"</code>.</li>
+      <li><strong><code>oxide_agent_tool_not_in_list_without_client</code></strong>: Init <code>McpManager</code> with <code>None</code> dust client; verify <code>oxide_agent</code> is absent from <code>list_tools()</code>.</li>
+      <li><strong><code>oxide_agent_tool_in_list_with_client</code></strong>: Init with a dummy client; verify <code>oxide_agent</code> is present.</li>
+      <li><strong><code>subagent_count_increments_and_decrements</code></strong>: Unit test the <code>App</code> counter methods.</li>
+      <li><strong><code>run_subagent_rejects_at_max_depth</code></strong>: Call <code>run_subagent</code> with <code>depth = MAX_SUBAGENT_DEPTH</code>. Assert it returns <code>Err</code> immediately with the depth-exceeded message, without making any network calls.</li>
+      <li><strong><code>oxide_agent_is_auto_approved</code></strong>: Verify that the tool approval gate returns <code>true</code> for <code>"oxide_agent"</code> without user interaction.</li>
+    </ul>
+  </div>
+
+  <h3>Manual TUI test (tmux)</h3>
+
+  <div class="card">
+    <pre><code"># Start oxide in a test session
+tmux new-session -d -s subagent-test -x 180 -y 40 "cargo run"
+sleep 3
+
+# Verify oxide_agent appears in MCP tool list (run mcp-server subcommand)
+cargo run -- mcp-server &amp;
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}' | cargo run -- mcp-server
+echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | cargo run -- mcp-server
+# Expect oxide_agent in the tools array
+
+tmux kill-session -t subagent-test</code></pre>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">14</span> Risks and Mitigations</h2>
+
+  <div class="card-warning card">
+    <h3>Recursive subagent depth</h3>
+    <p><strong>Risk:</strong> The Dust agent called as a subagent might itself call <code>oxide_agent</code>, creating arbitrarily deep recursion that exhausts resources or causes a runaway loop.</p>
+    <p><strong>Mitigation:</strong> A configurable max depth (default: <code>3</code>) is enforced in <code>run_subagent</code>. The current depth is threaded through the call chain via the <code>McpManager::current_depth</code> field. When the depth exceeds the limit, <code>run_subagent</code> returns immediately with a clear error string as the tool result (e.g., <code>"oxide_agent max depth (3) exceeded — cannot spawn further subagents"</code>). The calling agent receives this as a tool error and can decide how to proceed.</p>
+    <p>Remote subagents — tool calls handled by external MCP servers that Dust has configured server-side in an agent's workspace — are <em>not</em> counted against the local depth limit. Only calls that flow back through oxide's own <code>oxide_agent</code> built-in tool are tracked.</p>
+  </div>
+
+  <div class="card-warning card">
+    <h3>Blocking the McpManager mutex</h3>
+    <p><strong>Risk:</strong> <code>call_tool</code> holds the <code>McpManager</code> mutex while awaiting <code>run_subagent</code>. If two subagent calls happen concurrently (e.g., the Dust agent calls <code>oxide_agent</code> twice in parallel), the second call will block waiting for the mutex.</p>
+    <p><strong>Mitigation (short term):</strong> Clone the <code>DustClient</code> out of the manager <em>before</em> any async work, then release the lock immediately. The structure in section 4.3 already does this (<code>.clone()</code> before the <code>await</code>). The <code>run_subagent</code> call itself does not hold the mutex.</p>
+    <p>Review: the code in section 4.3 must be structured so the mutex is dropped <em>before</em> the <code>run_subagent</code> await. Since <code>call_tool</code> takes <code>&amp;mut self</code>, it holds the mutex for its entire duration — this <em>is</em> a problem for parallel calls.</p>
+    <p><strong>Correct fix:</strong> Extract the client and timeout value before the await, but since <code>&amp;mut self</code> is held across the await, the real solution is to structure <code>call_tool</code> to clone everything needed, then return a future that doesn't hold <code>self</code>. The simplest approach: clone the <code>DustClient</code> synchronously, then call the async runner. The mutex is already released by <code>tokio::spawn</code> in <code>main.rs</code> — the spawned task acquires the lock, runs, and releases it. Parallel tasks queue up but don't deadlock.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">15</span> Subagent Conversations in /resume</h2>
+
+  <div class="card">
+    <p>Each subagent call creates a real Dust conversation. These conversations should be discoverable via <code>/resume</code> so users can inspect what the subagent did — providing transparency without any extra effort.</p>
+
+    <h3>Conversation title</h3>
+    <p>When <code>run_subagent</code> creates the conversation via <code>create_conversation_with_skills</code>, it should pass a title that makes the subagent origin clear. The recommended format is:</p>
+    <pre><code>[subagent] {first 60 chars of prompt}</code></pre>
+    <p>If the caller also supplies a <code>description</code> parameter, prefer:</p>
+    <pre><code>[subagent] {description}</code></pre>
+    <p>This prefix makes subagent conversations immediately identifiable in the <code>/resume</code> picker list, which shows conversation titles.</p>
+
+    <h3>Implementation</h3>
+    <p>The <code>run_subagent</code> function signature already accepts the prompt and optionally the description. Pass the derived title into <code>create_conversation_with_skills</code> (or the underlying <code>POST /conversations</code> call). No schema changes are needed — the existing conversation create endpoint already accepts a <code>title</code> field. The <code>/resume</code> picker loads conversations from the Dust API and will surface them automatically.</p>
+  </div>
+
+  <div class="card-info card">
+    <h3>Future extension: per-tool auto-approve</h3>
+    <p><code>oxide_agent</code> is hard-coded to auto-approve in this implementation (see section 8). A future extension would allow users to configure auto-approve per tool name in <code>config.toml</code>, e.g. <code>[mcp.auto_approve] = ["oxide_agent", "my_custom_tool"]</code>. This is out of scope for the current plan.</p>
+  </div>
+</section>
+
+</body>
+</html>

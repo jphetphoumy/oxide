@@ -3,6 +3,7 @@ pub mod client;
 pub mod jsonrpc;
 pub mod process;
 pub mod server;
+pub mod subagent;
 pub mod transport;
 pub mod types;
 
@@ -21,10 +22,18 @@ pub struct McpManager {
     tools: Vec<McpTool>,
     clients: Vec<McpClient>,
     skills: Vec<crate::skills::Skill>,
+    dust_client: Option<crate::dust::client::DustClient>,
+    current_depth: u32,
+    event_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::dust::client::DustEvent>>,
 }
 
 impl McpManager {
-    pub async fn init(config: &McpConfig, skills: Vec<crate::skills::Skill>) -> Result<Self> {
+    #[allow(clippy::too_many_lines)]
+    pub async fn init(
+        config: &McpConfig,
+        skills: Vec<crate::skills::Skill>,
+        dust_client: Option<crate::dust::client::DustClient>,
+    ) -> Result<Self> {
         let mut tools = Vec::new();
         let mut clients = Vec::new();
 
@@ -49,6 +58,32 @@ impl McpManager {
                 "required": ["skill_id"]
             }),
         });
+
+        // Register built-in oxide_agent tool (only available when dust_client is present)
+        if dust_client.is_some() {
+            tools.push(McpTool {
+                name: "oxide_agent".to_string(),
+                description: "Spawn a new one-shot conversation with a Dust agent and return the agent's full response. Use this to delegate a subtask to a specialised agent. The subagent starts fresh (no shared context).".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "prompt": {
+                            "type": "string",
+                            "description": "The full prompt to send to the subagent."
+                        },
+                        "agent_id": {
+                            "type": "string",
+                            "description": "Optional Dust agent sId or slug. Defaults to the current session agent."
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Optional human-readable description of what this subagent call is doing (shown in the TUI)."
+                        }
+                    },
+                    "required": ["prompt"]
+                }),
+            });
+        }
 
         for server in &config.servers {
             tracing::debug!(server_name = %server.name, builtin = ?server.builtin, has_command = server.command.is_some(), "processing MCP server");
@@ -101,11 +136,21 @@ impl McpManager {
             tools,
             clients,
             skills,
+            dust_client,
+            current_depth: 0,
+            event_tx: None,
         })
     }
 
     pub fn list_tools(&self) -> Vec<McpTool> {
         self.tools.clone()
+    }
+
+    pub fn set_event_tx(
+        &mut self,
+        tx: tokio::sync::mpsc::UnboundedSender<crate::dust::client::DustEvent>,
+    ) {
+        self.event_tx = Some(tx);
     }
 
     pub async fn call_tool(
@@ -153,6 +198,65 @@ impl McpManager {
             return Ok(result);
         }
 
+        if tool_name == "oxide_agent" {
+            let prompt = input
+                .get("prompt")
+                .and_then(|v| v.as_str())
+                .context("oxide_agent requires 'prompt'")?
+                .to_string();
+
+            let agent_id = input
+                .get("agent_id")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string);
+
+            let description = input
+                .get("description")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string);
+
+            let depth = self.current_depth;
+
+            let client = self
+                .dust_client
+                .as_ref()
+                .context("oxide_agent: no Dust client available")?
+                .clone();
+
+            // Send SubagentStarted event
+            if let Some(ref tx) = self.event_tx {
+                let _ = tx.send(crate::dust::client::DustEvent::SubagentStarted {
+                    description: description.clone(),
+                });
+            }
+
+            let result = crate::mcp::subagent::run_subagent_with_timeout(
+                &client,
+                prompt,
+                agent_id.clone(),
+                depth,
+            )
+            .await;
+
+            // Send SubagentFinished event
+            if let Some(ref tx) = self.event_tx {
+                let _ = tx.send(crate::dust::client::DustEvent::SubagentFinished { description });
+            }
+
+            return match result {
+                Ok(text) => Ok(ToolResult {
+                    content: text,
+                    is_error: false,
+                    tool_use_id: String::new(),
+                }),
+                Err(e) => Ok(ToolResult {
+                    content: format!("subagent failed: {e}"),
+                    is_error: true,
+                    tool_use_id: String::new(),
+                }),
+            };
+        }
+
         for client in &mut self.clients {
             if let Ok(output) = client.call_tool(tool_name, input.clone()).await {
                 return Ok(ToolResult {
@@ -184,7 +288,7 @@ mod tests {
             }],
         };
 
-        let manager = McpManager::init(&config, vec![]).await.expect("init");
+        let manager = McpManager::init(&config, vec![], None).await.expect("init");
         let tools = manager.list_tools();
 
         // oxide_skill is always registered, so we should have 2 tools
@@ -208,7 +312,7 @@ mod tests {
             }],
         };
 
-        let mut manager = McpManager::init(&config, vec![]).await.expect("init");
+        let mut manager = McpManager::init(&config, vec![], None).await.expect("init");
         let result = manager
             .call_tool("oxide_bash", serde_json::json!({"command": "echo hello"}))
             .await
@@ -231,7 +335,7 @@ mod tests {
             }],
         };
 
-        let mut manager = McpManager::init(&config, vec![]).await.expect("init");
+        let mut manager = McpManager::init(&config, vec![], None).await.expect("init");
         let result = manager
             .call_tool("oxide_bash", serde_json::json!({"command": "ls -al /tmp"}))
             .await
@@ -251,7 +355,7 @@ mod tests {
             servers: vec![],
         };
 
-        let manager = McpManager::init(&config, vec![]).await.expect("init");
+        let manager = McpManager::init(&config, vec![], None).await.expect("init");
         let tools = manager.list_tools();
 
         let oxide_skill = tools.iter().find(|t| t.name == "oxide_skill");
@@ -265,7 +369,7 @@ mod tests {
             servers: vec![],
         };
 
-        let mut manager = McpManager::init(&config, vec![]).await.expect("init");
+        let mut manager = McpManager::init(&config, vec![], None).await.expect("init");
 
         // Test rejection of path traversal with ..
         let result = manager
@@ -299,7 +403,7 @@ mod tests {
             servers: vec![],
         };
 
-        let mut manager = McpManager::init(&config, vec![]).await.expect("init");
+        let mut manager = McpManager::init(&config, vec![], None).await.expect("init");
 
         // Test acceptance of alphanumeric with hyphens
         let result = manager
@@ -331,7 +435,7 @@ mod tests {
             servers: vec![],
         };
 
-        let mut manager = McpManager::init(&config, vec![]).await.expect("init");
+        let mut manager = McpManager::init(&config, vec![], None).await.expect("init");
         let result = manager
             .call_tool(
                 "oxide_skill",

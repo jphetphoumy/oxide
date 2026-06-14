@@ -74,11 +74,19 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
         format!(" [skills: {skill_names}]")
     };
 
+    // Format subagent indicator
+    let subagent_text = if app.subagent_count() > 0 {
+        format!(" [{} subagent(s) running]", app.subagent_count())
+    } else {
+        String::new()
+    };
+
     let agent_text = format!(" agent: {}", app.agent_name());
     let cwd_room = usize::from(area.width).saturating_sub(
         agent_text.chars().count()
             + streaming_text.chars().count()
             + skills_text.chars().count()
+            + subagent_text.chars().count()
             + hints.chars().count()
             + 2, // ", " separator
     );
@@ -89,6 +97,7 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
         + cwd_text.chars().count()
         + streaming_text.chars().count()
         + skills_text.chars().count()
+        + subagent_text.chars().count()
         + hints.chars().count();
     let padding = area
         .width
@@ -107,6 +116,12 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
     if !skills_text.is_empty() {
         spans.push(Span::styled(
             skills_text,
+            Style::default().fg(Color::Rgb(188, 140, 255)),
+        ));
+    }
+    if !subagent_text.is_empty() {
+        spans.push(Span::styled(
+            subagent_text,
             Style::default().fg(Color::Rgb(188, 140, 255)),
         ));
     }

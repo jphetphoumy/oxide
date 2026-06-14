@@ -64,6 +64,16 @@ pub enum DustEvent {
         tool_name: String,
         inputs: serde_json::Value,
     },
+    /// Subagent call started
+    SubagentStarted {
+        #[allow(dead_code)]
+        description: Option<String>,
+    },
+    /// Subagent call finished
+    SubagentFinished {
+        #[allow(dead_code)]
+        description: Option<String>,
+    },
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -722,9 +732,21 @@ impl DustClient {
         agent_id: &str,
         active_skills: &[crate::skills::Skill],
     ) -> Result<CreateConversationResponse> {
+        self.create_conversation_with_skills_and_title(message, agent_id, active_skills, None)
+            .await
+    }
+
+    pub async fn create_conversation_with_skills_and_title(
+        &self,
+        message: &str,
+        agent_id: &str,
+        active_skills: &[crate::skills::Skill],
+        custom_title: Option<String>,
+    ) -> Result<CreateConversationResponse> {
         let content = build_message_content(message, active_skills);
+        let title = custom_title.unwrap_or_else(|| conversation_title(message));
         let body = CreateConversationRequest {
-            title: Some(conversation_title(message)),
+            title: Some(title),
             visibility: DEFAULT_VISIBILITY.to_string(),
             message: self.message_body(&content, agent_id),
         };

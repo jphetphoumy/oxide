@@ -70,6 +70,7 @@ pub struct App {
     auto_approve_tools: bool,
     skills: Vec<crate::skills::Skill>,
     active_skills: Vec<crate::skills::Skill>,
+    subagent_count: usize,
 }
 
 impl App {
@@ -89,6 +90,7 @@ impl App {
             auto_approve_tools: false,
             skills: Vec::new(),
             active_skills: Vec::new(),
+            subagent_count: 0,
         }
     }
 
@@ -142,6 +144,20 @@ impl App {
 
     pub const fn quit(&mut self) {
         self.should_quit = true;
+    }
+
+    pub const fn subagent_count(&self) -> usize {
+        self.subagent_count
+    }
+
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn increment_subagent(&mut self) {
+        self.subagent_count += 1;
+    }
+
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn decrement_subagent(&mut self) {
+        self.subagent_count = self.subagent_count.saturating_sub(1);
     }
 
     pub fn send_message(&mut self, content: &str) -> bool {
