@@ -663,6 +663,168 @@ impl DustClient {
         Ok(())
     }
 
+    /// Like `send_message_flow_with_skills`, but with a custom conversation title.
+    /// Used for subagent conversations which need a special "[subagent]" prefix.
+    #[allow(clippy::too_many_lines)]
+    pub async fn send_message_flow_with_skills_and_title(
+        &self,
+        conversation_id: Option<String>,
+        content: String,
+        tx: mpsc::UnboundedSender<DustEvent>,
+        active_skills: &[crate::skills::Skill],
+        custom_title: Option<String>,
+    ) -> Result<()> {
+        debug!(
+            existing_conversation = conversation_id.as_deref().unwrap_or("<new>"),
+            content_len = content.len(),
+            "starting Dust message flow with custom title"
+        );
+        // Per ADR-0009: Skills are injected only at conversation creation, not on subsequent messages.
+        // The agent retains the skill index in the conversation history, so it can reference and
+        // use oxide_skill(skill_id) in subsequent turns without re-sending the full skill list.
+        let (user_message_id, conversation_id) = if let Some(existing) = conversation_id {
+            let user_message_id = self
+                .post_message(&existing, &content, &self.agent_id)
+                .await?;
+            (user_message_id, existing)
+        } else {
+            let created = self
+                .create_conversation_with_skills_and_title(
+                    &content,
+                    &self.agent_id,
+                    active_skills,
+                    custom_title,
+                )
+                .await?;
+            let conversation_id = created.conversation.s_id.clone();
+            let user_message_id = created
+                .message
+                .as_ref()
+                .map(|message| message.s_id.clone())
+                .ok_or_else(|| anyhow!("Dust response did not include a message id"))?;
+            (user_message_id, conversation_id)
+        };
+
+        debug!(
+            conversation_id = %conversation_id,
+            user_message_id = %user_message_id,
+            "Dust conversation is ready"
+        );
+        let _ = tx.send(DustEvent::ConversationCreated(conversation_id.clone()));
+        let _ = tx.send(DustEvent::UserMessageCreated(user_message_id.clone()));
+
+        let agent_message_id = self
+            .wait_for_agent_message(&conversation_id, &user_message_id)
+            .await?;
+        debug!(
+            conversation_id = %conversation_id,
+            agent_message_id = %agent_message_id,
+            "Dust agent message is ready"
+        );
+        let mut stream = self
+            .stream_events(&conversation_id, &agent_message_id)
+            .await?;
+        while let Some(event) = stream.next_event().await {
+            match event? {
+                StreamEvent::GenerationTokens {
+                    text,
+                    classification,
+                } if classification == "tokens" => {
+                    trace!(
+                        conversation_id = %conversation_id,
+                        token_len = text.len(),
+                        "received Dust token chunk"
+                    );
+                    let _ = tx.send(DustEvent::Token(text, Some(conversation_id.clone())));
+                }
+                StreamEvent::AgentMessageSuccess { message } => {
+                    debug!(
+                        conversation_id = %conversation_id,
+                        "Dust agent message completed"
+                    );
+                    let _ = tx.send(DustEvent::Complete(
+                        message.content,
+                        Some(conversation_id.clone()),
+                    ));
+                    return Ok(());
+                }
+                StreamEvent::AgentError { error } => {
+                    error!(
+                        conversation_id = %conversation_id,
+                        code = ?error.code,
+                        message = %error.message,
+                        "Dust agent error"
+                    );
+                    let _ = tx.send(DustEvent::Error(format!(
+                        "Dust agent error: {}",
+                        error.message
+                    )));
+                    return Ok(());
+                }
+                StreamEvent::UserMessageError { error } => {
+                    error!(
+                        conversation_id = %conversation_id,
+                        code = ?error.code,
+                        message = %error.message,
+                        "Dust user message error"
+                    );
+                    let _ = tx.send(DustEvent::Error(format!(
+                        "Dust message error: {}",
+                        error.message
+                    )));
+                    return Ok(());
+                }
+                StreamEvent::AgentGenerationCancelled => {
+                    debug!(
+                        conversation_id = %conversation_id,
+                        "Dust agent generation cancelled"
+                    );
+                    let _ = tx.send(DustEvent::Complete(None, Some(conversation_id.clone())));
+                    return Ok(());
+                }
+                StreamEvent::AgentActionSuccess { action } => {
+                    if let Some(tool_call) = StreamEvent::extract_tool_use_from_action(&action) {
+                        debug!(
+                            tool_name = %tool_call.name,
+                            tool_id = %tool_call.id,
+                            "received tool_use action from agent"
+                        );
+                        let _ = tx.send(DustEvent::ToolUse(tool_call));
+                    }
+                }
+                StreamEvent::ToolApproveExecution {
+                    action_id,
+                    conversation_id: event_conv_id,
+                    message_id,
+                    inputs,
+                    metadata,
+                } => {
+                    let tool_name = metadata
+                        .get("toolName")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    debug!(tool_name = %tool_name, action_id = %action_id, "MCP tool approval requested");
+                    let _ = tx.send(DustEvent::ToolApproveExecution {
+                        action_id,
+                        conversation_id: event_conv_id,
+                        message_id,
+                        tool_name,
+                        inputs,
+                    });
+                }
+                StreamEvent::GenerationTokens { .. } | StreamEvent::Unknown => {}
+            }
+        }
+
+        debug!(
+            conversation_id = %conversation_id,
+            "Dust stream ended without a terminal event"
+        );
+        let _ = tx.send(DustEvent::Complete(None, Some(conversation_id.clone())));
+        Ok(())
+    }
+
     pub async fn get_conversation(&self, conversation_id: &str) -> Result<Conversation> {
         let token = token_refresh::get_valid_token().await?;
         let response = self

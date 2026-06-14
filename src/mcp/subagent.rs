@@ -17,11 +17,13 @@ const SUBAGENT_TIMEOUT_SECS: u64 = 120;
 /// - Returns the complete agent response text on success.
 /// - `depth` is the current nesting level (0 = top-level call from user session).
 ///   If `depth` >= `MAX_SUBAGENT_DEPTH`, returns an error immediately.
+/// - `description` is an optional human-readable label for this subagent call.
 pub async fn run_subagent(
     client: &DustClient,
     prompt: String,
     agent_id: Option<String>,
     depth: u32,
+    description: Option<String>,
 ) -> Result<String> {
     if depth >= MAX_SUBAGENT_DEPTH {
         return Err(anyhow!(
@@ -38,10 +40,15 @@ pub async fn run_subagent(
     // Use an unbounded channel — the subagent runner is the only sender.
     let (tx, mut rx) = mpsc::unbounded_channel::<DustEvent>();
 
+    // Build the conversation title: "[subagent] {description or first 60 chars of prompt}"
+    let title_suffix = description.unwrap_or_else(|| prompt.chars().take(60).collect::<String>());
+    let title = format!("[subagent] {title_suffix}");
+
     // Run the full message flow in the current task (already inside a tokio::spawn).
     // Pass empty active_skills — subagent conversations never inherit parent skills.
+    // Use send_message_flow_with_skills_and_title to set the custom title.
     let flow = subagent_client
-        .send_message_flow_with_skills(None, prompt, tx, &[])
+        .send_message_flow_with_skills_and_title(None, prompt, tx, &[], Some(title))
         .await;
 
     // Drain all events from the channel (send_message_flow is done by now).
@@ -58,6 +65,8 @@ pub async fn run_subagent(
                 // Fallback: accumulate tokens if Complete doesn't include full content.
                 response_text.push_str(&token);
             }
+            // Tool calls from SSE are silently ignored during subagent execution.
+            // In a full implementation, these would be executed with depth + 1 context.
             _ => {}
         }
     }
@@ -78,10 +87,11 @@ pub async fn run_subagent_with_timeout(
     prompt: String,
     agent_id: Option<String>,
     depth: u32,
+    description: Option<String>,
 ) -> Result<String> {
     tokio::time::timeout(
         Duration::from_secs(SUBAGENT_TIMEOUT_SECS),
-        run_subagent(client, prompt, agent_id, depth),
+        run_subagent(client, prompt, agent_id, depth, description),
     )
     .await
     .map_err(|_| anyhow!("subagent timed out after {SUBAGENT_TIMEOUT_SECS}s"))?

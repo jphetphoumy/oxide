@@ -153,6 +153,11 @@ impl McpManager {
         self.event_tx = Some(tx);
     }
 
+    /// Check if a tool is a built-in oxide tool that should be auto-approved.
+    pub fn is_builtin_tool(name: &str) -> bool {
+        matches!(name, "oxide_agent" | "oxide_bash" | "oxide_skill")
+    }
+
     pub async fn call_tool(
         &mut self,
         tool_name: &str,
@@ -233,8 +238,9 @@ impl McpManager {
             let result = crate::mcp::subagent::run_subagent_with_timeout(
                 &client,
                 prompt,
-                agent_id.clone(),
+                agent_id,
                 depth,
+                description.clone(),
             )
             .await;
 

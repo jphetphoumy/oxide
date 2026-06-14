@@ -476,7 +476,8 @@ async fn run_tui() -> io::Result<()> {
                         }
                         // Old non-MCP inline tool use from conversation SSE
                         DustEvent::ToolUse(tool_call) => {
-                            if app.auto_approve_tools() {
+                            let should_auto_approve = app.auto_approve_tools() || McpManager::is_builtin_tool(&tool_call.name);
+                            if should_auto_approve {
                                 let tool_name = tool_call.name.clone();
                                 let input_json = tool_call.input.clone();
                                 let tool_use_id = tool_call.id.clone();
@@ -513,11 +514,12 @@ async fn run_tui() -> io::Result<()> {
                         DustEvent::ToolApproveExecution { action_id, conversation_id, message_id, tool_name, inputs } => {
                             let fake_call = crate::mcp::ToolCall {
                                 id: action_id.clone(),
-                                name: tool_name,
+                                name: tool_name.clone(),
                                 input: inputs,
                             };
                             let mcp_info = McpApproveInfo { action_id, conversation_id, message_id };
-                            if app.auto_approve_tools() {
+                            let should_auto_approve = app.auto_approve_tools() || McpManager::is_builtin_tool(&tool_name);
+                            if should_auto_approve {
                                 tracing::debug!(action_id = %mcp_info.action_id, "auto-approving MCP tool");
                                 let dust_client = client.clone();
                                 tokio::spawn(async move {
@@ -629,12 +631,6 @@ async fn run_tui() -> io::Result<()> {
                         })
                         .collect();
                     app.restore_conversation(conversation_id, role_messages, title.as_deref());
-                }
-                DustEvent::SubagentStarted { .. } => {
-                    app.increment_subagent();
-                }
-                DustEvent::SubagentFinished { .. } => {
-                    app.decrement_subagent();
                 }
                 _ => {}
             }
