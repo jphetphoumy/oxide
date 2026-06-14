@@ -72,7 +72,12 @@ mod tests {
     #[test]
     fn filter_empty_prefix_returns_all_builtins() {
         let results = filter_commands("");
-        assert_eq!(results.len(), BUILTIN_COMMANDS.len());
+        // Skill commands may be registered by other tests (shared static), so at least builtins
+        assert!(results.len() >= BUILTIN_COMMANDS.len());
+        let builtin_names: Vec<_> = BUILTIN_COMMANDS.iter().map(|(n, _, _)| *n).collect();
+        for name in builtin_names {
+            assert!(results.iter().any(|r| r.name == name));
+        }
     }
 
     #[test]
