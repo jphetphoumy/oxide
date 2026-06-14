@@ -191,8 +191,6 @@ fn handle_dust_message(
                 inputs,
                 app,
                 client,
-                mcp_manager,
-                dust_tx,
             );
         }
         DustEvent::McpToolUse(tool_call) => {
@@ -308,7 +306,6 @@ fn handle_mcp_tool_use_event(
     });
 }
 
-#[allow(clippy::too_many_arguments)]
 fn handle_tool_approve_execution_event(
     action_id: String,
     conversation_id: String,
@@ -317,8 +314,6 @@ fn handle_tool_approve_execution_event(
     inputs: serde_json::Value,
     app: &mut App,
     client: Option<&DustClient>,
-    _mcp_manager: &Arc<tokio::sync::Mutex<McpManager>>,
-    _dust_tx: &tokio::sync::mpsc::UnboundedSender<DustEvent>,
 ) {
     let fake_call = crate::mcp::ToolCall {
         id: action_id.clone(),

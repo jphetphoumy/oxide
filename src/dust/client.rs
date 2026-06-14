@@ -427,7 +427,9 @@ impl DustClient {
             .stream_events(conversation_id, agent_message_id)
             .await?;
         while let Some(event) = stream.next_event().await {
-            Self::process_stream_event(event?, conversation_id, &tx)?;
+            if !Self::process_stream_event(event?, conversation_id, &tx) {
+                return Ok(());
+            }
         }
 
         debug!(
@@ -438,12 +440,11 @@ impl DustClient {
         Ok(())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
     fn process_stream_event(
         event: StreamEvent,
         conversation_id: &str,
         tx: &mpsc::UnboundedSender<DustEvent>,
-    ) -> Result<()> {
+    ) -> bool {
         match event {
             StreamEvent::GenerationTokens {
                 text,
@@ -455,7 +456,7 @@ impl DustClient {
                     "received Dust token chunk"
                 );
                 let _ = tx.send(DustEvent::Token(text, Some(conversation_id.to_string())));
-                Ok(())
+                true
             }
             StreamEvent::AgentMessageSuccess { message } => {
                 debug!(
@@ -466,7 +467,7 @@ impl DustClient {
                     message.content,
                     Some(conversation_id.to_string()),
                 ));
-                Ok(())
+                false
             }
             StreamEvent::AgentError { error } => {
                 error!(
@@ -479,7 +480,7 @@ impl DustClient {
                     "Dust agent error: {}",
                     error.message
                 )));
-                Ok(())
+                false
             }
             StreamEvent::UserMessageError { error } => {
                 error!(
@@ -492,7 +493,7 @@ impl DustClient {
                     "Dust message error: {}",
                     error.message
                 )));
-                Ok(())
+                false
             }
             StreamEvent::AgentGenerationCancelled => {
                 debug!(
@@ -500,7 +501,7 @@ impl DustClient {
                     "Dust agent generation cancelled"
                 );
                 let _ = tx.send(DustEvent::Complete(None, Some(conversation_id.to_string())));
-                Ok(())
+                false
             }
             StreamEvent::AgentActionSuccess { action } => {
                 if let Some(tool_call) = StreamEvent::extract_tool_use_from_action(&action) {
@@ -511,7 +512,7 @@ impl DustClient {
                     );
                     let _ = tx.send(DustEvent::ToolUse(tool_call));
                 }
-                Ok(())
+                true
             }
             StreamEvent::ToolApproveExecution {
                 action_id,
@@ -533,9 +534,9 @@ impl DustClient {
                     tool_name,
                     inputs,
                 });
-                Ok(())
+                true
             }
-            StreamEvent::GenerationTokens { .. } | StreamEvent::Unknown => Ok(()),
+            StreamEvent::GenerationTokens { .. } | StreamEvent::Unknown => true,
         }
     }
 
