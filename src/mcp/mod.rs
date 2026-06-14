@@ -258,11 +258,8 @@ impl McpManager {
 
             // Send SubagentFinished event
             if let Some(ref tx) = self.event_tx {
-                let _ = tx.send(crate::dust::client::DustEvent::SubagentFinished {
-                    call_id,
-                    description,
-                    success,
-                });
+                let _ =
+                    tx.send(crate::dust::client::DustEvent::SubagentFinished { call_id, success });
             }
 
             return match result {

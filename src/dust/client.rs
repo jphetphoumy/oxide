@@ -72,8 +72,6 @@ pub enum DustEvent {
     /// Subagent call finished
     SubagentFinished {
         call_id: String,
-        #[allow(dead_code)]
-        description: Option<String>,
         success: bool,
     },
 }

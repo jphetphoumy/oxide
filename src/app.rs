@@ -208,10 +208,10 @@ impl App {
                     SubagentCallStatus::Failed
                 };
                 state.finished_at = Some(std::time::Instant::now());
+                self.subagent_count = self.subagent_count.saturating_sub(1);
                 break;
             }
         }
-        self.subagent_count = self.subagent_count.saturating_sub(1);
     }
 
     #[allow(clippy::missing_const_for_fn)]
@@ -1275,6 +1275,8 @@ mod tests {
         if let Role::SubagentCall(state) = &app.messages()[0].role {
             assert!(matches!(state.status, SubagentCallStatus::Running));
         }
+        // Counter must not change when the call_id is not found
+        assert_eq!(app.subagent_count(), 1);
     }
 
     #[test]
