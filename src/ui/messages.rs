@@ -259,7 +259,6 @@ mod tests {
 
     #[test]
     fn tool_approval_block_visible_at_bottom() {
-        use crate::app::AppMode;
         use crate::mcp::ToolCall;
 
         let mut app = App::new("agent", "/workspace", None);
