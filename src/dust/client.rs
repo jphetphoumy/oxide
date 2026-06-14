@@ -512,6 +512,9 @@ impl DustClient {
             content_len = content.len(),
             "starting Dust message flow"
         );
+        // Per ADR-0009: Skills are injected only at conversation creation, not on subsequent messages.
+        // The agent retains the skill index in the conversation history, so it can reference and
+        // use oxide_skill(skill_id) in subsequent turns without re-sending the full skill list.
         let (user_message_id, conversation_id) = if let Some(existing) = conversation_id {
             let user_message_id = self
                 .post_message(&existing, &content, &self.agent_id)

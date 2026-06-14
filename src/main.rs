@@ -101,8 +101,12 @@ async fn run_tui() -> io::Result<()> {
 
     let mut terminal = setup_terminal()?;
     let config = Config::load().map_err(|error| io::Error::other(error.to_string()))?;
+
+    // Discover and register skills at startup (before MCP manager init)
+    let skills = skills::discover_skills(std::path::Path::new(skills::SKILLS_DIR));
+
     let mcp_manager = Arc::new(tokio::sync::Mutex::new(
-        McpManager::init(config.mcp())
+        McpManager::init(config.mcp(), skills.clone())
             .await
             .map_err(|error| io::Error::other(error.to_string()))?,
     ));
@@ -112,8 +116,7 @@ async fn run_tui() -> io::Result<()> {
     let mut app = App::new(&agent_name, cwd, home_dir);
     app.set_auto_approve(config.mcp().auto_approve);
 
-    // Discover and register skills at startup
-    let skills = skills::discover_skills(std::path::Path::new(skills::SKILLS_DIR));
+    // Register skills with slash commands
     app.set_skills(skills.clone());
     slash::register_skill_commands(&skills);
 
@@ -662,8 +665,9 @@ async fn run_mcp_server() -> Result<()> {
     use tokio::sync::Mutex;
 
     let config = Config::load().map_err(|error| io::Error::other(error.to_string()))?;
+    let skills = skills::discover_skills(std::path::Path::new(skills::SKILLS_DIR));
     let mcp_manager = Arc::new(Mutex::new(
-        McpManager::init(config.mcp())
+        McpManager::init(config.mcp(), skills)
             .await
             .map_err(|error| io::Error::other(error.to_string()))?,
     ));

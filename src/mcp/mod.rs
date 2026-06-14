@@ -20,15 +20,17 @@ use crate::config::McpConfig;
 pub struct McpManager {
     tools: Vec<McpTool>,
     clients: Vec<McpClient>,
+    skills: Vec<crate::skills::Skill>,
 }
 
 impl McpManager {
-    pub async fn init(config: &McpConfig) -> Result<Self> {
+    pub async fn init(config: &McpConfig, skills: Vec<crate::skills::Skill>) -> Result<Self> {
         let mut tools = Vec::new();
         let mut clients = Vec::new();
 
         tracing::debug!(
             server_count = config.servers.len(),
+            skill_count = skills.len(),
             "initializing MCP manager"
         );
 
@@ -95,7 +97,11 @@ impl McpManager {
         for tool in &tools {
             tracing::info!(tool_name = %tool.name, tool_desc = %tool.description, "MCP tool loaded");
         }
-        Ok(Self { tools, clients })
+        Ok(Self {
+            tools,
+            clients,
+            skills,
+        })
     }
 
     pub fn list_tools(&self) -> Vec<McpTool> {
@@ -113,19 +119,21 @@ impl McpManager {
                 .and_then(|v| v.as_str())
                 .context("oxide_skill requires 'skill_id'")?;
 
-            // Security: reject path traversal - allowlist alphanumeric, hyphens, underscores
+            // Security: validate skill ID format
             anyhow::ensure!(
-                !skill_id.is_empty()
-                    && skill_id
-                        .chars()
-                        .all(|c| c.is_alphanumeric() || c == '-' || c == '_'),
+                crate::skills::is_valid_skill_id(skill_id),
                 "invalid skill_id: must contain only alphanumeric characters, hyphens, or underscores"
             );
 
-            let path =
-                std::path::PathBuf::from(crate::skills::SKILLS_DIR).join(format!("{skill_id}.md"));
-            let content = std::fs::read_to_string(&path)
-                .with_context(|| format!("skill '{skill_id}' not found at {}", path.display()))?;
+            // Look up skill by id in discovered skills to get absolute path
+            let skill = self
+                .skills
+                .iter()
+                .find(|s| s.id == skill_id)
+                .ok_or_else(|| anyhow::anyhow!("skill '{skill_id}' not found"))?;
+
+            let content = std::fs::read_to_string(&skill.path)
+                .with_context(|| format!("failed to read skill file: {}", skill.path.display()))?;
 
             return Ok(ToolResult {
                 content,
@@ -176,7 +184,7 @@ mod tests {
             }],
         };
 
-        let manager = McpManager::init(&config).await.expect("init");
+        let manager = McpManager::init(&config, vec![]).await.expect("init");
         let tools = manager.list_tools();
 
         // oxide_skill is always registered, so we should have 2 tools
@@ -200,7 +208,7 @@ mod tests {
             }],
         };
 
-        let mut manager = McpManager::init(&config).await.expect("init");
+        let mut manager = McpManager::init(&config, vec![]).await.expect("init");
         let result = manager
             .call_tool("oxide_bash", serde_json::json!({"command": "echo hello"}))
             .await
@@ -223,7 +231,7 @@ mod tests {
             }],
         };
 
-        let mut manager = McpManager::init(&config).await.expect("init");
+        let mut manager = McpManager::init(&config, vec![]).await.expect("init");
         let result = manager
             .call_tool("oxide_bash", serde_json::json!({"command": "ls -al /tmp"}))
             .await
@@ -243,7 +251,7 @@ mod tests {
             servers: vec![],
         };
 
-        let manager = McpManager::init(&config).await.expect("init");
+        let manager = McpManager::init(&config, vec![]).await.expect("init");
         let tools = manager.list_tools();
 
         let oxide_skill = tools.iter().find(|t| t.name == "oxide_skill");
@@ -257,7 +265,7 @@ mod tests {
             servers: vec![],
         };
 
-        let mut manager = McpManager::init(&config).await.expect("init");
+        let mut manager = McpManager::init(&config, vec![]).await.expect("init");
 
         // Test rejection of path traversal with ..
         let result = manager
@@ -291,7 +299,7 @@ mod tests {
             servers: vec![],
         };
 
-        let mut manager = McpManager::init(&config).await.expect("init");
+        let mut manager = McpManager::init(&config, vec![]).await.expect("init");
 
         // Test acceptance of alphanumeric with hyphens
         let result = manager
@@ -300,7 +308,7 @@ mod tests {
                 serde_json::json!({"skill_id": "code-review"}),
             )
             .await;
-        // Should fail with "not found" (file doesn't exist), not "invalid skill_id"
+        // Should fail with "not found" (skill doesn't exist), not "invalid skill_id"
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(!err_msg.contains("invalid skill_id"));
@@ -323,7 +331,7 @@ mod tests {
             servers: vec![],
         };
 
-        let mut manager = McpManager::init(&config).await.expect("init");
+        let mut manager = McpManager::init(&config, vec![]).await.expect("init");
         let result = manager
             .call_tool(
                 "oxide_skill",

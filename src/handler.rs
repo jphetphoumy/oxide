@@ -97,10 +97,10 @@ fn parse_slash_command(content: &str) -> Option<SlashCommand> {
         "/resume" => Some(SlashCommand::Resume),
         s if s.starts_with("/skills:") => {
             let id = s.trim_start_matches("/skills:").to_string();
-            if id.is_empty() {
-                None
-            } else {
+            if crate::skills::is_valid_skill_id(&id) {
                 Some(SlashCommand::ActivateSkill(id))
+            } else {
+                None
             }
         }
         _ => None,
