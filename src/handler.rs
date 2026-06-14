@@ -19,6 +19,8 @@ pub enum Action {
     MoveEnd,
     ScrollUp(usize),
     ScrollDown(usize),
+    ApproveTool,
+    DenyTool,
     None,
 }
 
@@ -50,6 +52,14 @@ pub fn handle_mouse_event(mouse: MouseEvent) -> Action {
     match mouse.kind {
         MouseEventKind::ScrollUp => Action::ScrollUp(MOUSE_SCROLL_LINES),
         MouseEventKind::ScrollDown => Action::ScrollDown(MOUSE_SCROLL_LINES),
+        _ => Action::None,
+    }
+}
+
+pub const fn handle_tool_approval_key(key: KeyEvent) -> Action {
+    match key.code {
+        KeyCode::Char('y') | KeyCode::Enter => Action::ApproveTool,
+        KeyCode::Char('n') | KeyCode::Esc => Action::DenyTool,
         _ => Action::None,
     }
 }
@@ -118,7 +128,7 @@ pub fn apply_action(app: &mut App, input: &mut InputBuffer, action: Action) -> A
         Action::MoveEnd => input.move_end(),
         Action::ScrollUp(n) => app.scroll_up(n),
         Action::ScrollDown(n) => app.scroll_down(n),
-        Action::None => {}
+        Action::ApproveTool | Action::DenyTool | Action::None => {}
     }
 
     outcome

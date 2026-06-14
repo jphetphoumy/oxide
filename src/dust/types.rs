@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::mcp::ToolCall;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageContext {
@@ -10,6 +12,11 @@ pub struct MessageContext {
     pub email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub full_name: Option<String>,
+    #[serde(
+        rename = "clientSideMCPServerIds",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub client_side_mcp_server_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -135,8 +142,31 @@ pub enum StreamEvent {
         #[serde(default)]
         action: serde_json::Value,
     },
+    #[serde(rename = "tool_approve_execution")]
+    ToolApproveExecution {
+        #[serde(rename = "actionId")]
+        action_id: String,
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "messageId")]
+        message_id: String,
+        #[serde(default)]
+        inputs: serde_json::Value,
+        #[serde(default)]
+        metadata: serde_json::Value,
+    },
     #[serde(other)]
     Unknown,
+}
+
+impl StreamEvent {
+    pub fn extract_tool_use_from_action(action: &serde_json::Value) -> Option<ToolCall> {
+        if action.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+            serde_json::from_value(action.clone()).ok()
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -176,6 +206,7 @@ mod tests {
                     origin: "cli".to_string(),
                     email: None,
                     full_name: Some("Oxide User".to_string()),
+                    client_side_mcp_server_ids: None,
                 },
             },
         };
@@ -226,6 +257,7 @@ mod tests {
                 origin: "cli".to_string(),
                 email: None,
                 full_name: None,
+                client_side_mcp_server_ids: None,
             },
         };
 
@@ -386,5 +418,36 @@ mod tests {
             }
             _ => panic!("Expected AgentMessage variant"),
         }
+    }
+
+    #[test]
+    fn extract_tool_use_from_action_parses_tool_call() {
+        let action = serde_json::json!({
+            "type": "tool_use",
+            "id": "tool_123",
+            "name": "bash",
+            "input": {
+                "command": "ls -la"
+            }
+        });
+
+        let tool_call = StreamEvent::extract_tool_use_from_action(&action);
+        assert!(tool_call.is_some());
+        let tool_call = tool_call.unwrap();
+        assert_eq!(tool_call.id, "tool_123");
+        assert_eq!(tool_call.name, "bash");
+        assert_eq!(tool_call.input["command"], "ls -la");
+    }
+
+    #[test]
+    fn extract_tool_use_from_action_ignores_non_tool_use() {
+        let action = serde_json::json!({
+            "type": "message",
+            "id": "msg_123",
+            "text": "hello"
+        });
+
+        let tool_call = StreamEvent::extract_tool_use_from_action(&action);
+        assert!(tool_call.is_none());
     }
 }

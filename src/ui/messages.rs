@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use crate::app::{App, Role};
+use crate::app::{App, AppMode, Role};
 
 const INDENT: &str = "   ";
 
@@ -32,6 +32,14 @@ pub fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
         }
     }
 
+    if let AppMode::ToolApproval(state) = app.mode() {
+        lines.extend(tool_approval_lines(
+            &state.tool_call.name,
+            &state.tool_call.input,
+            body_width,
+        ));
+    }
+
     let total_lines = lines.len();
     let visible_height = area.height as usize;
     let max_scroll = total_lines.saturating_sub(visible_height);
@@ -46,6 +54,68 @@ pub fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
         .scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0));
 
     frame.render_widget(messages_widget, area);
+}
+
+fn tool_approval_lines(
+    tool_name: &str,
+    input: &serde_json::Value,
+    width: usize,
+) -> Vec<Line<'static>> {
+    let sep = "─".repeat(width.min(60));
+    let mut lines: Vec<Line<'static>> = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  ⚙ ", Style::default().fg(Color::Yellow)),
+            Span::styled(
+                tool_name.to_string(),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(Span::styled(
+            format!("  {sep}"),
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    match input {
+        serde_json::Value::Object(obj) => {
+            for (key, val) in obj {
+                let val_str = match val {
+                    serde_json::Value::String(s) => s.clone(),
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::Bool(b) => b.to_string(),
+                    serde_json::Value::Null => "null".to_string(),
+                    _ => serde_json::to_string(val).unwrap_or_else(|_| "?".to_string()),
+                };
+                lines.push(Line::from(Span::styled(
+                    format!("{INDENT}{key} = {val_str}"),
+                    Style::default().fg(Color::Cyan),
+                )));
+            }
+        }
+        _ => {
+            lines.push(Line::from(Span::styled(
+                format!("{INDENT}{input}"),
+                Style::default().fg(Color::Cyan),
+            )));
+        }
+    }
+
+    lines.push(Line::from(Span::styled(
+        format!("  {sep}"),
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(vec![
+        Span::raw("  "),
+        Span::styled("[y] approve", Style::default().fg(Color::Green)),
+        Span::raw("  "),
+        Span::styled("[n] deny", Style::default().fg(Color::Red)),
+        Span::raw("  "),
+        Span::styled("[Esc] cancel", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines
 }
 
 /// Wrap a single line of text into chunks that fit within `max_width` characters.
@@ -185,5 +255,50 @@ mod tests {
 
         let rows = render_messages_text(&app, 20, 4);
         assert_eq!(rows, vec!["   two", "", "  system", "   three"]);
+    }
+
+    #[test]
+    fn tool_approval_block_visible_at_bottom() {
+        use crate::app::AppMode;
+        use crate::mcp::ToolCall;
+
+        let mut app = App::new("agent", "/workspace", None);
+        // Push enough messages that the approval block would be off-screen if scroll
+        // were not reset to 0.
+        for i in 0..10 {
+            app.push_system_message(&format!("message {i}"));
+        }
+        let tool_call = ToolCall {
+            id: "t1".into(),
+            name: "oxide_bash".into(),
+            input: serde_json::json!({"command": "ls -al"}),
+        };
+        app.enter_tool_approval(tool_call);
+        assert_eq!(app.scroll_offset(), 0);
+
+        let rows = render_messages_text(&app, 40, 6);
+        // Last visible rows should contain the approval prompt
+        let all = rows.join("\n");
+        assert!(
+            all.contains("oxide_bash"),
+            "tool name not found in rendered output:\n{all}"
+        );
+        assert!(
+            all.contains("[y] approve"),
+            "approve hint not found in rendered output:\n{all}"
+        );
+    }
+
+    #[test]
+    fn tool_approval_block_not_shown_in_chat_mode() {
+        let mut app = App::new("agent", "/workspace", None);
+        app.push_system_message("hello");
+
+        let rows = render_messages_text(&app, 40, 6);
+        let all = rows.join("\n");
+        assert!(
+            !all.contains("[y] approve"),
+            "approval block should not appear in Chat mode"
+        );
     }
 }

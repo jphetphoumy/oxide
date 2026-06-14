@@ -29,6 +29,7 @@ pub struct DustClient {
     workspace_id: String,
     agent_id: String,
     user_context: UserContext,
+    mcp_server_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -45,11 +46,23 @@ pub enum DustEvent {
     Complete(Option<String>, Option<String>), // content, conversation_id
     Error(String),
     ConversationCreated(String),
+    UserMessageCreated(String), // user_message_id for stream resumption
     ConversationsListed(Vec<ConversationSummary>),
     ConversationLoaded {
         conversation_id: String,
         title: Option<String>,
         messages: Vec<(String, String)>, // (role, content) where role is "user" | "agent" | "system"
+    },
+    ToolUse(crate::mcp::ToolCall),
+    /// Tool call from MCP transport — execute directly, post result to /mcp/results
+    McpToolUse(crate::mcp::ToolCall),
+    /// Approval request from conversation SSE — call `validate_action` to approve/deny
+    ToolApproveExecution {
+        action_id: String,
+        conversation_id: String,
+        message_id: String,
+        tool_name: String,
+        inputs: serde_json::Value,
     },
 }
 
@@ -105,6 +118,7 @@ impl DustClient {
             workspace_id,
             agent_id,
             user_context,
+            mcp_server_id: None,
         })
     }
 
@@ -113,8 +127,20 @@ impl DustClient {
         &self.agent_id
     }
 
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    pub fn workspace_id(&self) -> &str {
+        &self.workspace_id
+    }
+
     pub fn set_agent(&mut self, agent_id: impl Into<String>) {
         self.agent_id = agent_id.into();
+    }
+
+    pub fn set_mcp_server_id(&mut self, server_id: impl Into<String>) {
+        self.mcp_server_id = Some(server_id.into());
     }
 
     pub fn list_agents_url(&self) -> String {
@@ -254,6 +280,212 @@ impl DustClient {
         Ok(EventStream::new(response))
     }
 
+    pub async fn submit_tool_result(
+        &self,
+        conversation_id: &str,
+        tool_result: &crate::mcp::ToolResult,
+    ) -> Result<()> {
+        let token = token_refresh::get_valid_token().await?;
+        let body = serde_json::json!({
+            "tool_use_id": tool_result.tool_use_id,
+            "content": [
+                {
+                    "type": "text",
+                    "text": tool_result.content
+                }
+            ]
+        });
+
+        let path = &format!(
+            "/api/v1/w/{}/assistant/conversations/{conversation_id}/tool_results",
+            self.workspace_id
+        );
+
+        debug!(
+            conversation_id = %conversation_id,
+            tool_use_id = %tool_result.tool_use_id,
+            "submitting Dust tool result"
+        );
+
+        let response = self
+            .http
+            .post(self.url(path))
+            .header(CONTENT_TYPE, "application/json")
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .context("failed to submit tool result")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Dust rejected tool result submission: HTTP {status} — {body}");
+        }
+
+        Ok(())
+    }
+
+    pub async fn validate_action(
+        &self,
+        conversation_id: &str,
+        message_id: &str,
+        action_id: &str,
+        approved: bool,
+    ) -> Result<()> {
+        let token = token_refresh::get_valid_token().await?;
+        let body = serde_json::json!({
+            "actionId": action_id,
+            "approved": if approved { "approved" } else { "rejected" },
+        });
+        let path = format!(
+            "/api/v1/w/{}/assistant/conversations/{conversation_id}/messages/{message_id}/validate-action",
+            self.workspace_id
+        );
+        debug!(action_id = %action_id, approved = %approved, "validating MCP action");
+        let response = self
+            .http
+            .post(self.url(&path))
+            .header(CONTENT_TYPE, "application/json")
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .context("failed to validate action")?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("validate-action failed: HTTP {status} — {body}");
+        }
+        Ok(())
+    }
+
+    pub async fn post_mcp_result(
+        &self,
+        tool_use_id: &str,
+        content: &str,
+        is_error: bool,
+    ) -> Result<()> {
+        let Some(ref server_id) = self.mcp_server_id else {
+            anyhow::bail!("no MCP server registered");
+        };
+        let token = token_refresh::get_valid_token().await?;
+        let request_id: serde_json::Value =
+            serde_json::from_str(tool_use_id).unwrap_or(serde_json::Value::Null);
+        let result = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "content": [{ "type": "text", "text": content }],
+                "isError": is_error
+            }
+        });
+        let body = serde_json::json!({
+            "serverId": server_id,
+            "result": result,
+        });
+        let url = format!(
+            "{}/api/v1/w/{}/mcp/results",
+            self.base_url, self.workspace_id
+        );
+        debug!(server_id = %server_id, is_error = %is_error, "posting MCP tool result");
+        let response = self
+            .http
+            .post(&url)
+            .header(CONTENT_TYPE, "application/json")
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .context("failed to post MCP result")?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("MCP post result failed: HTTP {status} — {body}");
+        }
+        Ok(())
+    }
+
+    pub async fn resume_message_stream(
+        &self,
+        conversation_id: &str,
+        user_message_id: &str,
+        tx: mpsc::UnboundedSender<DustEvent>,
+    ) -> Result<()> {
+        debug!(
+            conversation_id = %conversation_id,
+            user_message_id = %user_message_id,
+            "resuming message stream after tool execution"
+        );
+
+        let agent_message_id = self
+            .wait_for_agent_message(conversation_id, user_message_id)
+            .await?;
+
+        debug!(
+            agent_message_id = %agent_message_id,
+            "found next agent message, resuming stream"
+        );
+
+        let mut stream = self
+            .stream_events(conversation_id, &agent_message_id)
+            .await?;
+
+        while let Some(event) = stream.next_event().await {
+            match event? {
+                StreamEvent::GenerationTokens {
+                    text,
+                    classification,
+                } if classification == "tokens" => {
+                    let _ = tx.send(DustEvent::Token(text, Some(conversation_id.to_string())));
+                }
+                StreamEvent::AgentMessageSuccess { message } => {
+                    debug!("resumed stream: agent message completed");
+                    let _ = tx.send(DustEvent::Complete(
+                        message.content,
+                        Some(conversation_id.to_string()),
+                    ));
+                    return Ok(());
+                }
+                StreamEvent::AgentError { error } => {
+                    let _ = tx.send(DustEvent::Error(format!(
+                        "Dust agent error (after tool): {}",
+                        error.message
+                    )));
+                    return Ok(());
+                }
+                StreamEvent::AgentActionSuccess { action } => {
+                    if let Some(tool_call) = StreamEvent::extract_tool_use_from_action(&action) {
+                        let _ = tx.send(DustEvent::ToolUse(tool_call));
+                    }
+                }
+                StreamEvent::ToolApproveExecution {
+                    action_id,
+                    conversation_id: event_conv_id,
+                    message_id,
+                    inputs,
+                    metadata,
+                } => {
+                    let tool_name = metadata
+                        .get("toolName")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let _ = tx.send(DustEvent::ToolApproveExecution {
+                        action_id,
+                        conversation_id: event_conv_id,
+                        message_id,
+                        tool_name,
+                        inputs,
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
     #[allow(clippy::too_many_lines)]
     pub async fn send_message_flow(
         &self,
@@ -288,6 +520,7 @@ impl DustClient {
             "Dust conversation is ready"
         );
         let _ = tx.send(DustEvent::ConversationCreated(conversation_id.clone()));
+        let _ = tx.send(DustEvent::UserMessageCreated(user_message_id.clone()));
 
         let agent_message_id = self
             .wait_for_agent_message(&conversation_id, &user_message_id)
@@ -358,9 +591,38 @@ impl DustClient {
                     let _ = tx.send(DustEvent::Complete(None, Some(conversation_id.clone())));
                     return Ok(());
                 }
-                StreamEvent::GenerationTokens { .. }
-                | StreamEvent::AgentActionSuccess { .. }
-                | StreamEvent::Unknown => {}
+                StreamEvent::AgentActionSuccess { action } => {
+                    if let Some(tool_call) = StreamEvent::extract_tool_use_from_action(&action) {
+                        debug!(
+                            tool_name = %tool_call.name,
+                            tool_id = %tool_call.id,
+                            "received tool_use action from agent"
+                        );
+                        let _ = tx.send(DustEvent::ToolUse(tool_call));
+                    }
+                }
+                StreamEvent::ToolApproveExecution {
+                    action_id,
+                    conversation_id: event_conv_id,
+                    message_id,
+                    inputs,
+                    metadata,
+                } => {
+                    let tool_name = metadata
+                        .get("toolName")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    debug!(tool_name = %tool_name, action_id = %action_id, "MCP tool approval requested");
+                    let _ = tx.send(DustEvent::ToolApproveExecution {
+                        action_id,
+                        conversation_id: event_conv_id,
+                        message_id,
+                        tool_name,
+                        inputs,
+                    });
+                }
+                StreamEvent::GenerationTokens { .. } | StreamEvent::Unknown => {}
             }
         }
 
@@ -475,6 +737,7 @@ impl DustClient {
                 origin: DEFAULT_ORIGIN.to_string(),
                 email: self.user_context.email.clone(),
                 full_name: self.user_context.full_name.clone(),
+                client_side_mcp_server_ids: self.mcp_server_id.as_ref().map(|id| vec![id.clone()]),
             },
         }
     }

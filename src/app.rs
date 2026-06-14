@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::dust::types::{AgentInfo, ConversationSummary};
+use crate::mcp::ToolCall;
 
 #[derive(Debug, Clone)]
 pub struct PickerState {
@@ -19,10 +20,26 @@ pub struct ResumePickerState {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_field_names)]
+pub struct McpApproveInfo {
+    pub action_id: String,
+    pub conversation_id: String,
+    pub message_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ToolApprovalState {
+    pub tool_call: ToolCall,
+    /// Present when this approval is for an MCP tool — on approve, call `validate_action`.
+    pub mcp_approve: Option<McpApproveInfo>,
+}
+
+#[derive(Debug, Clone)]
 pub enum AppMode {
     Chat,
     Picker(PickerState),
     ResumePicker(ResumePickerState),
+    ToolApproval(ToolApprovalState),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,8 +64,10 @@ pub struct App {
     home_dir: Option<PathBuf>,
     should_quit: bool,
     conversation_id: Option<String>,
+    user_message_id: Option<String>,
     is_streaming: bool,
     mode: AppMode,
+    auto_approve_tools: bool,
 }
 
 impl App {
@@ -62,9 +81,19 @@ impl App {
             home_dir,
             should_quit: false,
             conversation_id: None,
+            user_message_id: None,
             is_streaming: false,
             mode: AppMode::Chat,
+            auto_approve_tools: false,
         }
+    }
+
+    pub const fn set_auto_approve(&mut self, auto_approve: bool) {
+        self.auto_approve_tools = auto_approve;
+    }
+
+    pub const fn auto_approve_tools(&self) -> bool {
+        self.auto_approve_tools
     }
 
     pub fn messages(&self) -> &[Message] {
@@ -85,6 +114,14 @@ impl App {
 
     pub fn conversation_id(&self) -> Option<&str> {
         self.conversation_id.as_deref()
+    }
+
+    pub fn user_message_id(&self) -> Option<&str> {
+        self.user_message_id.as_deref()
+    }
+
+    pub fn set_user_message_id(&mut self, id: impl Into<String>) {
+        self.user_message_id = Some(id.into());
     }
 
     pub const fn is_streaming(&self) -> bool {
@@ -373,12 +410,50 @@ impl App {
             self.agent_name
         ));
     }
+
+    pub fn enter_tool_approval(&mut self, tool_call: ToolCall) {
+        self.scroll_offset = 0;
+        self.mode = AppMode::ToolApproval(ToolApprovalState {
+            tool_call,
+            mcp_approve: None,
+        });
+    }
+
+    pub fn enter_mcp_tool_approval(&mut self, tool_call: ToolCall, mcp_approve: McpApproveInfo) {
+        self.scroll_offset = 0;
+        self.mode = AppMode::ToolApproval(ToolApprovalState {
+            tool_call,
+            mcp_approve: Some(mcp_approve),
+        });
+    }
+
+    pub fn exit_tool_approval(&mut self) {
+        self.mode = AppMode::Chat;
+    }
+
+    pub const fn current_tool_approval_state(&self) -> Option<&ToolApprovalState> {
+        if let AppMode::ToolApproval(state) = &self.mode {
+            Some(state)
+        } else {
+            None
+        }
+    }
+
+    #[allow(dead_code)]
+    pub const fn current_tool_call(&self) -> Option<&ToolCall> {
+        if let AppMode::ToolApproval(state) = &self.mode {
+            Some(&state.tool_call)
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::dust::types::AgentInfo;
+    use crate::mcp::ToolCall;
     use std::path::PathBuf;
 
     #[test]
@@ -930,5 +1005,60 @@ mod tests {
             app.messages()[1].content,
             "Resumed conversation: My Project"
         );
+    }
+
+    #[test]
+    fn enter_tool_approval_sets_mode() {
+        let mut app = App::new("test-agent", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "tool_123".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+
+        app.scroll_up(5);
+        app.enter_tool_approval(tool_call.clone());
+        match app.mode() {
+            AppMode::ToolApproval(_) => {}
+            _ => panic!("Expected ToolApproval mode"),
+        }
+        assert_eq!(
+            app.scroll_offset(),
+            0,
+            "entering tool approval should reset scroll to bottom"
+        );
+    }
+
+    #[test]
+    fn current_tool_call_returns_tool_in_approval_mode() {
+        let mut app = App::new("test-agent", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "tool_123".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+
+        app.enter_tool_approval(tool_call.clone());
+        let current = app.current_tool_call();
+        assert!(current.is_some());
+        assert_eq!(current.unwrap().id, "tool_123");
+        assert_eq!(current.unwrap().name, "bash");
+    }
+
+    #[test]
+    fn exit_tool_approval_returns_to_chat_mode() {
+        let mut app = App::new("test-agent", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "tool_123".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+
+        app.enter_tool_approval(tool_call);
+        app.exit_tool_approval();
+        match app.mode() {
+            AppMode::Chat => {}
+            _ => panic!("Expected Chat mode"),
+        }
     }
 }

@@ -1,0 +1,352 @@
+/* Oxide Plan Design System - Color Palette */
+:root {
+  /* Dark theme colors (GitHub-inspired) */
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --text-muted: #8b949e;
+  --text-dim: #484f58;
+
+  /* Accent colors */
+  --accent: #58a6ff;        /* Blue - primary */
+  --accent-dim: #1f6feb33;  /* Blue dim background */
+  --accent2: #f78166;       /* Orange - secondary */
+
+  /* Status colors */
+  --green: #3fb950;         /* Success */
+  --green-dim: #23863533;   /* Success dim background */
+  --yellow: #d29922;        /* Warning */
+  --yellow-dim: #d2992233;  /* Warning dim background */
+  --red: #f85149;           /* Error */
+  --red-dim: #f8514933;     /* Error dim background */
+  --purple: #bc8cff;        /* Info */
+  --purple-dim: #bc8cff33;  /* Info dim background */
+  --orange: #db6d28;        /* Alternative */
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+}
+
+/* Reset & Base Styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  padding: 2rem;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+/* Typography */
+h1 {
+  font-size: 2rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1.5rem;
+  color: #fff;
+}
+
+h1 span {
+  color: var(--accent2);
+}
+
+h2 {
+  font-size: 1.3rem;
+  color: var(--accent);
+  margin: 2rem 0 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+
+h2 .num {
+  background: var(--accent);
+  color: var(--bg);
+  border-radius: 50%;
+  width: 1.6rem;
+  height: 1.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+h3 {
+  font-size: 1rem;
+  color: var(--purple);
+  margin: 1rem 0 0.4rem;
+}
+
+h4 {
+  font-size: 0.95rem;
+  color: var(--yellow);
+  margin: 0.8rem 0 0.3rem;
+}
+
+p, li {
+  color: var(--text);
+  margin-bottom: 0.4rem;
+}
+
+ul, ol {
+  padding-left: 1.4rem;
+  margin: 0.3rem 0 0.8rem;
+}
+
+li {
+  margin: 0.25rem 0;
+}
+
+/* Code Blocks */
+code {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.9em;
+  color: var(--accent2);
+  font-family: var(--font-mono);
+}
+
+pre {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 0.5rem 0 1rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  font-family: var(--font-mono);
+}
+
+pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text);
+}
+
+/* Cards & Containers */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.2rem;
+  margin: 0.75rem 0;
+}
+
+.card-success {
+  background: var(--green-dim);
+  border-color: var(--green);
+  border-left: 3px solid var(--green);
+}
+
+.card-warning {
+  background: var(--yellow-dim);
+  border-color: var(--yellow);
+  border-left: 3px solid var(--yellow);
+}
+
+.card-error {
+  background: var(--red-dim);
+  border-color: var(--red);
+  border-left: 3px solid var(--red);
+}
+
+.card-info {
+  background: var(--purple-dim);
+  border-color: var(--purple);
+  border-left: 3px solid var(--purple);
+}
+
+.card-accent {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  border-left: 3px solid var(--accent);
+}
+
+/* Special Containers */
+.objective {
+  border-left: 3px solid var(--accent);
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border-radius: 0 8px 8px 0;
+  margin: 1rem 0;
+}
+
+.summary {
+  border-left: 3px solid var(--accent);
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border-radius: 0 8px 8px 0;
+  margin: 1rem 0;
+}
+
+.flow-diagram {
+  background: #000;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  white-space: pre;
+  line-height: 1.4;
+  color: var(--text-muted);
+  overflow-x: auto;
+  margin: 0.5rem 0 1rem;
+}
+
+.flow-diagram .highlight {
+  color: var(--accent);
+}
+
+.flow-diagram .green {
+  color: var(--green);
+}
+
+.flow-diagram .orange {
+  color: var(--orange);
+}
+
+.flow-diagram .dim {
+  color: var(--text-dim);
+}
+
+/* Tags & Labels */
+.tag {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 12px;
+  font-weight: 600;
+  margin-right: 0.3rem;
+  margin-bottom: 0.3rem;
+}
+
+.tag-dep {
+  background: #1f2937;
+  color: var(--yellow);
+  border: 1px solid var(--yellow);
+}
+
+.tag-new {
+  background: #1f2937;
+  color: var(--purple);
+  border: 1px solid var(--purple);
+}
+
+.tag-mod {
+  background: #1f2937;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.tag-fix {
+  background: #1f2937;
+  color: var(--green);
+  border: 1px solid var(--green);
+}
+
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0 1rem;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+th {
+  background: var(--surface);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+tr:hover {
+  background: rgba(88, 166, 255, 0.05);
+}
+
+/* Endpoint style */
+.endpoint {
+  font-family: var(--font-mono);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 1rem;
+  margin: 0.4rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.method {
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.method-get {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.method-post {
+  background: var(--orange);
+  color: var(--bg);
+}
+
+.method-put {
+  background: var(--yellow);
+  color: var(--bg);
+}
+
+.method-delete {
+  background: var(--red);
+  color: var(--bg);
+}
+
+.endpoint-path {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Section Styles */
+section {
+  margin-bottom: 2rem;
+}
+
+/* Accessibility */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #ffffff;
+    --surface: #f6f8fa;
+    --border: #e1e4e8;
+    --text: #24292e;
+    --text-muted: #6a737d;
+    --text-dim: #959da5;
+    --accent: #0366d6;
+    --accent-dim: #f1f8ff;
+    --accent2: #d73a49;
+  }
+}

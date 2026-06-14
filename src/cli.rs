@@ -20,4 +20,6 @@ pub enum Command {
     Logout,
     /// Show current auth status
     Status,
+    /// Run MCP server mode (for use with Dust agent)
+    McpServer,
 }
