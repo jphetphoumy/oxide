@@ -27,6 +27,8 @@ use tokio::sync::mpsc;
 
 use std::sync::Arc;
 
+const SAFE_TOOL_NAME: &str = "oxide_skill";
+
 use crate::app::{App, AppMode, McpApproveInfo};
 use crate::auth::device_flow::build_http_client;
 use crate::auth::workspace_selection;
@@ -218,8 +220,8 @@ fn handle_tool_use_event(
     mcp_manager: &Arc<tokio::sync::Mutex<McpManager>>,
     dust_tx: &tokio::sync::mpsc::UnboundedSender<DustEvent>,
 ) {
-    let should_auto_approve =
-        app.auto_approve_tools() || McpManager::is_builtin_tool(&tool_call.name);
+    let is_safe_tool = tool_call.name == SAFE_TOOL_NAME;
+    let should_auto_approve = app.auto_approve_tools() || is_safe_tool;
     if should_auto_approve {
         let tool_name = tool_call.name.clone();
         let input_json = tool_call.input.clone();
@@ -264,46 +266,54 @@ fn handle_tool_use_event(
 
 fn handle_mcp_tool_use_event(
     tool_call: &crate::mcp::ToolCall,
-    app: &App,
+    app: &mut App,
     client: Option<&DustClient>,
     mcp_manager: &Arc<tokio::sync::Mutex<McpManager>>,
     dust_tx: &tokio::sync::mpsc::UnboundedSender<DustEvent>,
 ) {
-    tracing::debug!(tool = %tool_call.name, "executing MCP tool call");
-    let tool_name = tool_call.name.clone();
-    let input_json = tool_call.input.clone();
-    let tool_use_id = tool_call.id.clone();
-    let dust_client = client.cloned();
-    let mcp = mcp_manager.clone();
-    let conversation_id = app.conversation_id().map(ToString::to_string);
-    let user_message_id = app.user_message_id().map(ToString::to_string);
-    let resume_tx = dust_tx.clone();
-    tokio::spawn(async move {
-        let (content, is_error) = match mcp.lock().await.call_tool(&tool_name, input_json).await {
-            Ok(result) => (result.content, result.is_error),
-            Err(e) => {
-                tracing::error!(tool = %tool_name, error = %e, "MCP tool execution failed");
-                (format!("error: {e}"), true)
-            }
-        };
-        if let Some(c) = dust_client {
-            if let Err(e) = c.post_mcp_result(&tool_use_id, &content, is_error).await {
-                tracing::error!(error = %e, "failed to post MCP tool result");
-                return;
-            }
-            // Resume the conversation SSE to get Dust's continued response.
-            // The server closes the SSE while waiting for tool execution,
-            // so we must reopen it after posting the result.
-            if let (Some(conv_id), Some(user_msg_id)) =
-                (conversation_id.as_deref(), user_message_id.as_deref())
-                && let Err(e) = c
-                    .resume_message_stream(conv_id, user_msg_id, resume_tx.clone())
-                    .await
+    let is_safe_tool = tool_call.name == SAFE_TOOL_NAME;
+    let should_auto_approve = app.auto_approve_tools() || is_safe_tool;
+    if should_auto_approve {
+        tracing::debug!(tool = %tool_call.name, "auto-approving MCP tool call");
+        let tool_name = tool_call.name.clone();
+        let input_json = tool_call.input.clone();
+        let tool_use_id = tool_call.id.clone();
+        let dust_client = client.cloned();
+        let mcp = mcp_manager.clone();
+        let conversation_id = app.conversation_id().map(ToString::to_string);
+        let user_message_id = app.user_message_id().map(ToString::to_string);
+        let resume_tx = dust_tx.clone();
+        tokio::spawn(async move {
+            let (content, is_error) = match mcp.lock().await.call_tool(&tool_name, input_json).await
             {
-                tracing::error!(error = %e, "failed to resume stream after MCP tool");
+                Ok(result) => (result.content, result.is_error),
+                Err(e) => {
+                    tracing::error!(tool = %tool_name, error = %e, "MCP tool execution failed");
+                    (format!("error: {e}"), true)
+                }
+            };
+            if let Some(c) = dust_client {
+                if let Err(e) = c.post_mcp_result(&tool_use_id, &content, is_error).await {
+                    tracing::error!(error = %e, "failed to post MCP tool result");
+                    return;
+                }
+                // Resume the conversation SSE to get Dust's continued response.
+                // The server closes the SSE while waiting for tool execution,
+                // so we must reopen it after posting the result.
+                if let (Some(conv_id), Some(user_msg_id)) =
+                    (conversation_id.as_deref(), user_message_id.as_deref())
+                    && let Err(e) = c
+                        .resume_message_stream(conv_id, user_msg_id, resume_tx.clone())
+                        .await
+                {
+                    tracing::error!(error = %e, "failed to resume stream after MCP tool");
+                }
             }
-        }
-    });
+        });
+    } else {
+        // MCP external tools require approval - mark as MCP transport so we use post_mcp_result
+        app.enter_mcp_transport_tool_approval(tool_call.clone());
+    }
 }
 
 fn handle_tool_approve_execution_event(
@@ -325,7 +335,8 @@ fn handle_tool_approve_execution_event(
         conversation_id,
         message_id,
     };
-    let should_auto_approve = app.auto_approve_tools() || McpManager::is_builtin_tool(tool_name);
+    let is_safe_tool = tool_name == SAFE_TOOL_NAME;
+    let should_auto_approve = app.auto_approve_tools() || is_safe_tool;
     if should_auto_approve {
         tracing::debug!(action_id = %mcp_info.action_id, "auto-approving MCP tool");
         let dust_client = client.cloned();
@@ -437,8 +448,41 @@ fn handle_approve_tool_action(
                 tracing::error!(error = %e, "failed to validate MCP action");
             }
         });
+    } else if state.mcp_transport {
+        // MCP transport tool: execute + post result + resume stream
+        let tool_name = tool_call.name.clone();
+        let input_json = tool_call.input.clone();
+        let tool_use_id = tool_call.id;
+        let dust_client_moved = dust_client;
+        let conversation_id = app.conversation_id().map(ToString::to_string);
+        let user_message_id = app.user_message_id().map(ToString::to_string);
+        tokio::spawn(async move {
+            let (content, is_error) = match mcp.lock().await.call_tool(&tool_name, input_json).await
+            {
+                Ok(result) => (result.content, result.is_error),
+                Err(e) => {
+                    tracing::error!(tool = %tool_name, error = %e, "MCP tool execution failed");
+                    (format!("error: {e}"), true)
+                }
+            };
+            if let Some(c) = dust_client_moved {
+                if let Err(e) = c.post_mcp_result(&tool_use_id, &content, is_error).await {
+                    tracing::error!(error = %e, "failed to post MCP tool result");
+                    return;
+                }
+                // Resume the conversation SSE to get Dust's continued response.
+                if let (Some(conv_id), Some(user_msg_id)) =
+                    (conversation_id.as_deref(), user_message_id.as_deref())
+                    && let Err(e) = c
+                        .resume_message_stream(conv_id, user_msg_id, dust_tx_inner.clone())
+                        .await
+                {
+                    tracing::error!(error = %e, "failed to resume stream after MCP tool");
+                }
+            }
+        });
     } else {
-        // Old non-MCP flow: execute + submit result + resume stream
+        // Old non-MCP conversation tool flow: execute + submit result + resume stream
         let tool_name = tool_call.name.clone();
         let input_json = tool_call.input.clone();
         let tool_use_id = tool_call.id;
@@ -675,8 +719,20 @@ fn handle_deny_tool_action(
                 tracing::error!(error = %e, "failed to reject MCP action");
             }
         });
+    } else if state.mcp_transport {
+        // MCP transport tool: post error result
+        let tool_use_id = tool_call.id;
+        tokio::spawn(async move {
+            if let Some(c) = dust_client
+                && let Err(e) = c
+                    .post_mcp_result(&tool_use_id, "denied by user", true)
+                    .await
+            {
+                tracing::error!(error = %e, "failed to post MCP denial result");
+            }
+        });
     } else {
-        // Old non-MCP flow: submit denial result
+        // Old non-MCP conversation tool flow: submit denial result
         let tool_use_id = tool_call.id;
         let conversation_id = app.conversation_id().map(ToString::to_string);
         let denial_result = crate::mcp::ToolResult {
@@ -915,4 +971,37 @@ async fn run_mcp_server() -> Result<()> {
     server.run().await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+#[must_use]
+fn is_safe_tool(tool_name: &str) -> bool {
+    tool_name == SAFE_TOOL_NAME
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oxide_skill_is_safe() {
+        assert!(is_safe_tool("oxide_skill"));
+    }
+
+    #[test]
+    fn oxide_bash_is_dangerous() {
+        assert!(!is_safe_tool("oxide_bash"));
+    }
+
+    #[test]
+    fn oxide_agent_is_dangerous() {
+        assert!(!is_safe_tool("oxide_agent"));
+    }
+
+    #[test]
+    fn external_mcp_tools_are_dangerous() {
+        assert!(!is_safe_tool("my_custom_tool"));
+        assert!(!is_safe_tool("fs_tool"));
+        assert!(!is_safe_tool("api_tool"));
+    }
 }

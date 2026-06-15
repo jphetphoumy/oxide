@@ -102,19 +102,27 @@ fn tool_approval_lines(
     let sep = "─".repeat(width.min(60));
     let mut lines: Vec<Line<'static>> = vec![
         Line::from(""),
-        Line::from(vec![
-            Span::styled("  ⚙ ", Style::default().fg(Color::Yellow)),
-            Span::styled(
-                tool_name.to_string(),
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]),
+        Line::from(vec![Span::styled(
+            "  ⚠ Approve tool call? ",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(Span::styled(
             format!("  {sep}"),
             Style::default().fg(Color::DarkGray),
         )),
+        Line::from(vec![
+            Span::styled("  Tool: ", Style::default().fg(Color::White)),
+            Span::styled(
+                tool_name.to_string(),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled("  Input:", Style::default().fg(Color::White))),
     ];
 
     match input {

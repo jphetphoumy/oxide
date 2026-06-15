@@ -165,11 +165,6 @@ impl McpManager {
         self.event_tx = Some(tx);
     }
 
-    /// Check if a tool is a built-in oxide tool that should be auto-approved.
-    pub fn is_builtin_tool(name: &str) -> bool {
-        matches!(name, "oxide_agent" | "oxide_bash" | "oxide_skill")
-    }
-
     pub async fn call_tool(
         &mut self,
         tool_name: &str,
@@ -321,20 +316,6 @@ impl McpManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn is_builtin_tool_recognises_oxide_tools() {
-        assert!(McpManager::is_builtin_tool("oxide_agent"));
-        assert!(McpManager::is_builtin_tool("oxide_bash"));
-        assert!(McpManager::is_builtin_tool("oxide_skill"));
-    }
-
-    #[test]
-    fn is_builtin_tool_rejects_unknown_tools() {
-        assert!(!McpManager::is_builtin_tool("my_custom_tool"));
-        assert!(!McpManager::is_builtin_tool(""));
-        assert!(!McpManager::is_builtin_tool("oxide_agent_extra"));
-    }
 
     #[tokio::test]
     async fn lists_builtin_bash_tool() {
