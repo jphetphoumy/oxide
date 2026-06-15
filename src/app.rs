@@ -147,6 +147,11 @@ impl App {
         &self.agent_name
     }
 
+    #[allow(dead_code)]
+    pub fn agent_id(&self) -> &str {
+        &self.agent_id
+    }
+
     pub fn cwd(&self) -> &Path {
         self.cwd.as_path()
     }
@@ -1345,5 +1350,85 @@ mod tests {
         assert!(app.streaming_started_at().is_some());
         app.restore_conversation("conv-123".into(), vec![], None);
         assert!(app.streaming_started_at().is_none());
+    }
+
+    #[test]
+    fn agent_id_accessor_returns_initial_agent_id() {
+        let app = App::new("initial-agent", "/workspace", None);
+        assert_eq!(app.agent_id(), "initial-agent");
+    }
+
+    #[test]
+    fn switch_agent_updates_agent_id() {
+        let mut app = App::new("old-agent-id", "/workspace", None);
+        app.switch_agent("new-agent-id", "new-agent-name");
+        assert_eq!(app.agent_id(), "new-agent-id");
+    }
+
+    #[test]
+    fn switch_agent_updates_both_id_and_name() {
+        let mut app = App::new("initial-id", "/workspace", None);
+        app.switch_agent("updated-id", "updated-name");
+        assert_eq!(app.agent_id(), "updated-id");
+        assert_eq!(app.agent_name(), "updated-name");
+    }
+
+    #[test]
+    fn set_picker_filter_resets_selected_index() {
+        let agents = vec![
+            AgentInfo {
+                s_id: "a1".to_string(),
+                name: "Agent 1".to_string(),
+                description: "".to_string(),
+                scope: "".to_string(),
+            },
+            AgentInfo {
+                s_id: "a2".to_string(),
+                name: "Helper Bot".to_string(),
+                description: "".to_string(),
+                scope: "".to_string(),
+            },
+            AgentInfo {
+                s_id: "a3".to_string(),
+                name: "Agent 3".to_string(),
+                description: "".to_string(),
+                scope: "".to_string(),
+            },
+        ];
+        let mut app = App::new("initial", "/workspace", None);
+        app.enter_picker();
+        app.set_picker_agents(agents);
+        app.picker_move_selection(2);
+        assert_eq!(app.picker_selected(), 2);
+        app.set_picker_filter("Helper");
+        assert_eq!(app.picker_selected(), 0);
+    }
+
+    #[test]
+    fn switch_agent_persists_after_filter() {
+        let agents = vec![
+            AgentInfo {
+                s_id: "a1".to_string(),
+                name: "Main Agent".to_string(),
+                description: "".to_string(),
+                scope: "".to_string(),
+            },
+            AgentInfo {
+                s_id: "a2".to_string(),
+                name: "Helper".to_string(),
+                description: "".to_string(),
+                scope: "".to_string(),
+            },
+        ];
+        let mut app = App::new("main-agent-id", "/workspace", None);
+        app.enter_picker();
+        app.set_picker_agents(agents);
+        app.set_picker_filter("Helper");
+        let filtered = app.picker_filtered_agents();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].s_id, "a2");
+        app.switch_agent("a2", "Helper");
+        assert_eq!(app.agent_id(), "a2");
+        assert_eq!(app.agent_name(), "Helper");
     }
 }

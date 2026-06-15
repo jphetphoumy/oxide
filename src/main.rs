@@ -522,7 +522,7 @@ fn handle_approve_tool_action(
 fn handle_agent_picker_key_event(
     key: crossterm::event::KeyEvent,
     app: &mut App,
-    client: Option<DustClient>,
+    client: &mut Option<DustClient>,
 ) {
     let picker_action = handle_picker_key(key);
     match picker_action {
@@ -534,7 +534,7 @@ fn handle_agent_picker_key_event(
                 let agent_id = agent.s_id.clone();
                 let agent_name = agent.name.clone();
                 app.switch_agent(&agent_id, &agent_name);
-                if let Some(mut c) = client {
+                if let Some(c) = client.as_mut() {
                     c.set_agent(&agent_id);
                 }
             }
@@ -871,7 +871,7 @@ async fn run_tui_main_loop(
                     Some(AppEvent::Key(key)) => {
                         match app.mode() {
                             AppMode::Picker(_) => {
-                                handle_agent_picker_key_event(key, &mut app, client.clone());
+                                handle_agent_picker_key_event(key, &mut app, &mut client);
                             }
                             AppMode::ResumePicker(_) => {
                                 handle_resume_picker_key_event(key, &mut app, client.clone(), &dust_tx);
