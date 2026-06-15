@@ -70,6 +70,13 @@ pub fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
         }
     }
 
+    if app.is_streaming() {
+        lines.extend(streaming_indicator_lines(
+            app.streaming_started_at(),
+            app.tick_count(),
+        ));
+    }
+
     if let AppMode::ToolApproval(state) = app.mode() {
         lines.extend(tool_approval_lines(
             &state.tool_call.name,
@@ -259,6 +266,34 @@ fn subagent_call_lines(state: &SubagentCallState, tick: u64) -> Vec<Line<'static
     }
 }
 
+fn streaming_indicator_lines(
+    started_at: Option<std::time::Instant>,
+    tick: u64,
+) -> Vec<Line<'static>> {
+    #[allow(clippy::cast_possible_truncation)]
+    let frame_idx = (tick as usize) % SPINNER_FRAMES.len();
+    let spinner = SPINNER_FRAMES[frame_idx];
+
+    let elapsed_secs = started_at.map_or(0, |t| t.elapsed().as_secs());
+
+    vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!("  {spinner} "), Style::default().fg(Color::Yellow)),
+            Span::styled(
+                "Thinking...",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("  {elapsed_secs}s"),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -440,5 +475,46 @@ mod tests {
         let all = rows.join("\n");
         assert!(all.contains('✗'), "cross missing: {all}");
         assert!(all.contains("failed"), "failed text missing: {all}");
+    }
+
+    #[test]
+    fn streaming_indicator_shows_spinner_while_streaming() {
+        let mut app = App::new("agent", "/workspace", None);
+        assert!(app.send_message("hello"));
+        let rows = render_messages_text(&app, 40, 6);
+        let all = rows.join("\n");
+        assert!(
+            all.contains("Thinking..."),
+            "streaming indicator missing: {all}"
+        );
+        assert!(
+            all.contains('⟳') || all.contains('↻'),
+            "spinner missing: {all}"
+        );
+    }
+
+    #[test]
+    fn streaming_indicator_disappears_after_complete() {
+        let mut app = App::new("agent", "/workspace", None);
+        assert!(app.send_message("hello"));
+        app.complete_stream(Some("done"));
+        let rows = render_messages_text(&app, 40, 6);
+        let all = rows.join("\n");
+        assert!(
+            !all.contains("Thinking..."),
+            "streaming indicator should be gone after complete: {all}"
+        );
+    }
+
+    #[test]
+    fn streaming_indicator_not_shown_when_not_streaming() {
+        let mut app = App::new("agent", "/workspace", None);
+        app.push_system_message("welcome");
+        let rows = render_messages_text(&app, 40, 6);
+        let all = rows.join("\n");
+        assert!(
+            !all.contains("Thinking..."),
+            "indicator should not appear when not streaming: {all}"
+        );
     }
 }
