@@ -218,8 +218,8 @@ fn handle_tool_use_event(
     mcp_manager: &Arc<tokio::sync::Mutex<McpManager>>,
     dust_tx: &tokio::sync::mpsc::UnboundedSender<DustEvent>,
 ) {
-    let should_auto_approve =
-        app.auto_approve_tools() || McpManager::is_builtin_tool(&tool_call.name);
+    let is_safe_tool = tool_call.name == "oxide_skill";
+    let should_auto_approve = app.auto_approve_tools() || is_safe_tool;
     if should_auto_approve {
         let tool_name = tool_call.name.clone();
         let input_json = tool_call.input.clone();
@@ -325,7 +325,8 @@ fn handle_tool_approve_execution_event(
         conversation_id,
         message_id,
     };
-    let should_auto_approve = app.auto_approve_tools() || McpManager::is_builtin_tool(tool_name);
+    let is_safe_tool = tool_name == "oxide_skill";
+    let should_auto_approve = app.auto_approve_tools() || is_safe_tool;
     if should_auto_approve {
         tracing::debug!(action_id = %mcp_info.action_id, "auto-approving MCP tool");
         let dust_client = client.cloned();
