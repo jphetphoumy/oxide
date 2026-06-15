@@ -1377,30 +1377,32 @@ mod tests {
     fn set_picker_filter_resets_selected_index() {
         let agents = vec![
             AgentInfo {
-                s_id: "a1".to_string(),
-                name: "Agent 1".to_string(),
-                description: "".to_string(),
-                scope: "".to_string(),
+                s_id: "agent-1".to_string(),
+                name: "hello".to_string(),
+                description: "desc1".to_string(),
+                scope: String::new(),
             },
             AgentInfo {
-                s_id: "a2".to_string(),
-                name: "Helper Bot".to_string(),
-                description: "".to_string(),
-                scope: "".to_string(),
+                s_id: "agent-2".to_string(),
+                name: "world".to_string(),
+                description: "desc2".to_string(),
+                scope: String::new(),
             },
             AgentInfo {
-                s_id: "a3".to_string(),
-                name: "Agent 3".to_string(),
-                description: "".to_string(),
-                scope: "".to_string(),
+                s_id: "agent-3".to_string(),
+                name: "helper".to_string(),
+                description: "desc3".to_string(),
+                scope: String::new(),
             },
         ];
-        let mut app = App::new("initial", "/workspace", None);
+        let mut app = App::new("agent-id", "/workspace", None);
         app.enter_picker();
         app.set_picker_agents(agents);
-        app.picker_move_selection(2);
+        app.picker_move_selection(1);
+        app.picker_move_selection(1);
         assert_eq!(app.picker_selected(), 2);
-        app.set_picker_filter("Helper");
+
+        app.set_picker_filter("hel");
         assert_eq!(app.picker_selected(), 0);
     }
 
