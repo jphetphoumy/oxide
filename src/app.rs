@@ -147,7 +147,7 @@ impl App {
         &self.agent_name
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn agent_id(&self) -> &str {
         &self.agent_id
     }
