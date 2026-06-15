@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oxide — Fix Agent Switch Bug</title>
+  <style>
+    /* Oxide Plan Design System - Color Palette */
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --text-dim: #484f58;
+      --accent: #58a6ff;
+      --accent-dim: #1f6feb33;
+      --accent2: #f78166;
+      --green: #3fb950;
+      --green-dim: #23863533;
+      --yellow: #d29922;
+      --yellow-dim: #d2992233;
+      --red: #f85149;
+      --red-dim: #f8514933;
+      --purple: #bc8cff;
+      --purple-dim: #bc8cff33;
+      --orange: #db6d28;
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 2rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
+      margin-bottom: 1.5rem;
+      color: #fff;
+    }
+    h1 span { color: var(--accent2); }
+
+    h2 {
+      font-size: 1.3rem;
+      color: var(--accent);
+      margin: 2rem 0 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding-bottom: 0.3rem;
+      border-bottom: 1px solid var(--border);
+    }
+    h2 .num {
+      background: var(--accent);
+      color: var(--bg);
+      border-radius: 50%;
+      width: 1.6rem;
+      height: 1.6rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    h3 { font-size: 1rem; color: var(--purple); margin: 1rem 0 0.4rem; }
+    h4 { font-size: 0.95rem; color: var(--yellow); margin: 0.8rem 0 0.3rem; }
+
+    p, li { color: var(--text); margin-bottom: 0.4rem; }
+    ul, ol { padding-left: 1.4rem; margin: 0.3rem 0 0.8rem; }
+    li { margin: 0.25rem 0; }
+
+    code {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.15rem 0.4rem;
+      font-size: 0.9em;
+      color: var(--accent2);
+      font-family: var(--font-mono);
+    }
+
+    pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      overflow-x: auto;
+      margin: 0.5rem 0 1rem;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      font-family: var(--font-mono);
+    }
+    pre code { background: none; border: none; padding: 0; color: var(--text); }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.2rem;
+      margin: 0.75rem 0;
+    }
+    .card-success { background: var(--green-dim); border-color: var(--green); border-left: 3px solid var(--green); }
+    .card-warning { background: var(--yellow-dim); border-color: var(--yellow); border-left: 3px solid var(--yellow); }
+    .card-error   { background: var(--red-dim);    border-color: var(--red);    border-left: 3px solid var(--red); }
+    .card-info    { background: var(--purple-dim); border-color: var(--purple); border-left: 3px solid var(--purple); }
+    .card-accent  { background: var(--accent-dim); border-color: var(--accent); border-left: 3px solid var(--accent); }
+
+    .objective {
+      border-left: 3px solid var(--accent);
+      padding: 0.75rem 1rem;
+      background: var(--surface);
+      border-radius: 0 8px 8px 0;
+      margin: 1rem 0;
+    }
+
+    .flow-diagram {
+      background: #000;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      white-space: pre;
+      line-height: 1.4;
+      color: var(--text-muted);
+      overflow-x: auto;
+      margin: 0.5rem 0 1rem;
+    }
+    .flow-diagram .highlight { color: var(--accent); }
+    .flow-diagram .green     { color: var(--green); }
+    .flow-diagram .orange    { color: var(--orange); }
+    .flow-diagram .red       { color: var(--red); }
+    .flow-diagram .dim       { color: var(--text-dim); }
+
+    .tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      padding: 0.1rem 0.5rem;
+      border-radius: 12px;
+      font-weight: 600;
+      margin-right: 0.3rem;
+      margin-bottom: 0.3rem;
+    }
+    .tag-fix  { background: #1f2937; color: var(--green);  border: 1px solid var(--green); }
+    .tag-mod  { background: #1f2937; color: var(--accent); border: 1px solid var(--accent); }
+    .tag-new  { background: #1f2937; color: var(--purple); border: 1px solid var(--purple); }
+    .tag-dep  { background: #1f2937; color: var(--yellow); border: 1px solid var(--yellow); }
+
+    table { width: 100%; border-collapse: collapse; margin: 0.5rem 0 1rem; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border: 1px solid var(--border); font-size: 0.9rem; }
+    th { background: var(--surface); color: var(--accent); font-weight: 600; }
+    tr:hover { background: rgba(88, 166, 255, 0.05); }
+
+    section { margin-bottom: 2rem; }
+
+    .line-ref {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.1rem 0.4rem;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #ffffff; --surface: #f6f8fa; --border: #e1e4e8;
+        --text: #24292e; --text-muted: #6a737d; --text-dim: #959da5;
+        --accent: #0366d6; --accent-dim: #f1f8ff; --accent2: #d73a49;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<h1><span>Oxide</span> Fix Agent Switch Bug</h1>
+
+<div class="objective">
+  <strong>Goal:</strong> Ensure that when a user runs <code>/switch</code> and selects a new agent, the next message is sent to that new agent — not the original one.<br>
+  <strong>Scope:</strong> Two files: <code>src/main.rs</code> (function signature fix) and <code>src/app.rs</code> (filter reset fix + new test). No API changes, no UI changes.<br>
+  <strong>Success:</strong> Sending a message after <code>/switch</code> reaches the newly selected agent. Unit test asserts <code>app.agent_id</code> persists correctly after the picker selection path.
+</div>
+
+<!-- ─────────────────────────────────────────── -->
+<section>
+  <h2><span class="num">1</span> Overview</h2>
+
+  <div class="card">
+    <p>
+      The <code>/switch</code> slash command opens the agent picker modal. Users type to filter agents, press Enter to select, and expect the next message to go to the chosen agent. Instead, it silently sends to the original agent.
+    </p>
+    <p>The bug has two independent components:</p>
+    <ul>
+      <li><strong>Primary bug</strong> — <code>handle_agent_picker_key_event()</code> receives a <em>cloned</em> <code>Option&lt;DustClient&gt;</code>. The clone's <code>set_agent()</code> mutates the clone, not the <code>client</code> variable that lives in the main loop. The main loop's <code>client</code> retains the old <code>agent_id</code> forever.</li>
+      <li><strong>Secondary bug</strong> — <code>set_picker_filter()</code> already resets <code>state.selected = 0</code> (lines 340–342), which is correct. However, there is no reset when agents load <em>while the user has already moved the selection</em>. <code>set_picker_agents()</code> at line 334 does reset <code>selected = 0</code>, so this path is safe. The issue is when the user types quickly before agents arrive: they could move selection on an empty list, then the filter reset leaves <code>selected</code> stale. Adding an explicit <code>selected = 0</code> on every filter change is the right defensive fix.</li>
+    </ul>
+  </div>
+
+  <div class="card card-error">
+    <h3>What is NOT broken</h3>
+    <ul>
+      <li><code>app.switch_agent()</code> correctly updates <code>app.agent_id</code> and <code>app.agent_name</code> (line 400–405 of <code>src/app.rs</code>).</li>
+      <li>The "Switched to agent-name" system message is pushed correctly.</li>
+      <li>The Dust API itself does not need to be changed.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section>
+  <h2><span class="num">2</span> Root Cause Analysis</h2>
+
+  <h3>Bug 1 — Cloned client loses mutation (Primary)</h3>
+  <div class="card card-error">
+    <p>In <code>src/main.rs</code>, the main loop calls (line 874):</p>
+    <pre><code>handle_agent_picker_key_event(key, &amp;mut app, client.clone());</code></pre>
+    <p>
+      <code>client.clone()</code> produces an <code>Option&lt;DustClient&gt;</code> that is passed <em>by value</em> into the function signature:
+    </p>
+    <pre><code>fn handle_agent_picker_key_event(
+    key: crossterm::event::KeyEvent,
+    app: &amp;mut App,
+    client: Option&lt;DustClient&gt;,   // &lt;-- owned clone, not &amp;mut
+) {</code></pre>
+    <p>
+      On the <code>PickerAction::Select</code> branch (lines 530–540), the function does:
+    </p>
+    <pre><code>if let Some(mut c) = client {
+    c.set_agent(&amp;agent_id);
+}</code></pre>
+    <p>
+      This moves the <em>clone</em> out of the <code>Option</code>, mutates it, and then it is dropped at end-of-scope. The original <code>client: Option&lt;DustClient&gt;</code> variable in <code>run_tui_main_loop</code> is untouched. Every subsequent call to <code>handle_pending_message_submit</code> uses <code>client.clone()</code> of the unchanged original — still carrying the old <code>agent_id</code>.
+    </p>
+  </div>
+
+  <h3>Bug 2 — Off-by-one after filter changes (Secondary)</h3>
+  <div class="card card-warning">
+    <p>
+      <code>set_picker_filter()</code> already contains <code>state.selected = 0</code>, so this is already fixed in the current code. The secondary bug mentioned in the issue description is therefore a pre-existing correct implementation — the real risk is that <code>picker_move_selection()</code> computes <code>count</code> from the filtered list, and if <code>selected</code> is out of bounds for the current filter, <code>filtered.get(selected)</code> on the <code>Select</code> branch returns <code>None</code>, silently no-oping the selection. The defensive fix (resetting <code>selected = 0</code> in <code>set_picker_filter</code>) is already present. We still add a unit test to pin this behaviour.
+    </p>
+  </div>
+
+  <h3>Call graph showing the broken path</h3>
+  <div class="flow-diagram"><span class="highlight">run_tui_main_loop</span>
+  <span class="dim">owns</span> client: Option&lt;DustClient&gt;  (agent_id = "old-agent")
+         <span class="dim">|</span>
+         <span class="dim">v</span>  key event, AppMode::Picker
+  <span class="highlight">handle_agent_picker_key_event</span>(key, &amp;mut app, <span class="red">client.clone()</span>)
+         <span class="dim">|</span>
+         <span class="dim">v</span>  PickerAction::Select
+  app.switch_agent("new-id", "new-name")   <span class="green">// OK — app.agent_id updated</span>
+  let Some(mut c) = client { c.set_agent("new-id") }  <span class="red">// mutates CLONE, dropped</span>
+         <span class="dim">|</span>
+         <span class="dim">v</span>  next frame — user sends message
+  <span class="highlight">handle_pending_message_submit</span>(content, <span class="red">client.clone()</span>, ...)
+         <span class="dim">|</span>  client.agent_id is still "old-agent"
+         <span class="dim">v</span>
+  client.send_message_flow_with_skills(...)  <span class="red">// sent to old agent!</span></div>
+
+  <h3>Fix path</h3>
+  <div class="flow-diagram"><span class="highlight">run_tui_main_loop</span>
+  owns client: Option&lt;DustClient&gt;
+         <span class="dim">|</span>
+         <span class="dim">v</span>
+  <span class="highlight">handle_agent_picker_key_event</span>(key, &amp;mut app, <span class="green">&amp;mut client</span>)
+         <span class="dim">|</span>
+         <span class="dim">v</span>  PickerAction::Select
+  app.switch_agent("new-id", "new-name")   <span class="green">// app.agent_id updated</span>
+  if let Some(c) = client { c.set_agent("new-id") }  <span class="green">// mutates original</span>
+         <span class="dim">|</span>
+         <span class="dim">v</span>  next frame
+  <span class="highlight">handle_pending_message_submit</span>(content, client.clone(), ...)
+         <span class="dim">|</span>  client.agent_id is now "new-agent"  <span class="green">✓</span>
+         <span class="dim">v</span>
+  client.send_message_flow_with_skills(...)  <span class="green">// sent to new agent!</span></div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section>
+  <h2><span class="num">3</span> Implementation Steps</h2>
+
+  <h3>Step 1 — Change function signature in <code>src/main.rs</code></h3>
+  <div class="card card-accent">
+    <span class="tag tag-fix">fix</span> <span class="tag tag-mod">src/main.rs</span>
+    <p>
+      Change <code>handle_agent_picker_key_event</code> (line 522) to take <code>client: &amp;mut Option&lt;DustClient&gt;</code> instead of <code>client: Option&lt;DustClient&gt;</code>.
+    </p>
+
+    <h4>Before (lines 522–526)</h4>
+    <pre><code>fn handle_agent_picker_key_event(
+    key: crossterm::event::KeyEvent,
+    app: &amp;mut App,
+    client: Option&lt;DustClient&gt;,
+) {</code></pre>
+
+    <h4>After</h4>
+    <pre><code>fn handle_agent_picker_key_event(
+    key: crossterm::event::KeyEvent,
+    app: &amp;mut App,
+    client: &amp;mut Option&lt;DustClient&gt;,
+) {</code></pre>
+  </div>
+
+  <h3>Step 2 — Fix the Select branch inside the function</h3>
+  <div class="card card-accent">
+    <span class="tag tag-fix">fix</span> <span class="tag tag-mod">src/main.rs lines 537–539</span>
+    <p>
+      The <code>PickerAction::Select</code> arm currently moves the clone out of the <code>Option</code>. With the new <code>&amp;mut</code> reference, use <code>as_mut()</code> to borrow mutably without moving.
+    </p>
+
+    <h4>Before</h4>
+    <pre><code>if let Some(mut c) = client {
+    c.set_agent(&amp;agent_id);
+}</code></pre>
+
+    <h4>After</h4>
+    <pre><code>if let Some(c) = client.as_mut() {
+    c.set_agent(&amp;agent_id);
+}</code></pre>
+  </div>
+
+  <h3>Step 3 — Update the call site in <code>run_tui_main_loop</code></h3>
+  <div class="card card-accent">
+    <span class="tag tag-fix">fix</span> <span class="tag tag-mod">src/main.rs line 874</span>
+    <p>
+      The call site in the <code>tokio::select!</code> loop currently passes a clone. Change it to pass a mutable reference.
+    </p>
+
+    <h4>Before (line 874)</h4>
+    <pre><code>handle_agent_picker_key_event(key, &amp;mut app, client.clone());</code></pre>
+
+    <h4>After</h4>
+    <pre><code>handle_agent_picker_key_event(key, &amp;mut app, &amp;mut client);</code></pre>
+  </div>
+
+  <h3>Step 4 — Verify <code>set_picker_filter</code> resets selection in <code>src/app.rs</code></h3>
+  <div class="card card-info">
+    <span class="tag tag-mod">verify</span> <span class="tag tag-mod">src/app.rs lines 338–343</span>
+    <p>
+      <code>set_picker_filter</code> already contains <code>state.selected = 0</code>. No code change needed here — only a unit test is required to document and pin the behaviour.
+    </p>
+    <pre><code>pub fn set_picker_filter(&amp;mut self, filter: &amp;str) {
+    if let AppMode::Picker(state) = &amp;mut self.mode {
+        state.filter = filter.to_string();
+        state.selected = 0;  // already present — correct
+    }
+}</code></pre>
+  </div>
+
+  <h3>Step 5 — Add integration tests in <code>src/app.rs</code></h3>
+  <div class="card card-accent">
+    <span class="tag tag-new">test</span> <span class="tag tag-mod">src/app.rs</span>
+    <p>
+      Add two tests inside the existing <code>#[cfg(test)] mod tests</code> block (after line 1349):
+    </p>
+
+    <h4>Test A — switch_agent updates agent_id field</h4>
+    <pre><code>#[test]
+fn switch_agent_updates_agent_id() {
+    let mut app = App::new("old-agent", "/workspace", None);
+    app.switch_agent("new-id", "new-name");
+    // agent_id must reflect the new selection so future HTTP requests use it
+    assert_eq!(app.agent_id, "new-id");
+    assert_eq!(app.agent_name(), "new-name");
+}</code></pre>
+    <p>
+      Note: <code>app.agent_id</code> is a private field. Add a <code>pub fn agent_id(&amp;self) -&gt; &amp;str</code> accessor on <code>App</code> (guarded by <code>#[cfg(test)]</code> mirrors the existing <code>DustClient::agent_id</code> pattern, or make it unconditionally public — see Risk section). Alternatively test through observable side-effects already present.
+    </p>
+
+    <h4>Test B — set_picker_filter resets selected index</h4>
+    <pre><code>#[test]
+fn set_picker_filter_resets_selected_index() {
+    let mut app = App::new("a", "/workspace", None);
+    app.enter_picker();
+    app.set_picker_agents(vec![
+        AgentInfo { s_id: "a1".into(), name: "alpha".into(), description: "".into(), scope: "".into() },
+        AgentInfo { s_id: "a2".into(), name: "beta".into(),  description: "".into(), scope: "".into() },
+    ]);
+    app.picker_move_selection(1);
+    assert_eq!(app.picker_selected(), 1);
+
+    // Typing a filter character must reset selection to 0
+    app.set_picker_filter("alpha");
+    assert_eq!(app.picker_selected(), 0,
+        "set_picker_filter must reset selected index to prevent off-by-one selection");
+}</code></pre>
+
+    <h4>Test C — switch_agent_after_filter selects correct agent</h4>
+    <pre><code>#[test]
+fn switch_agent_persists_after_filter() {
+    let mut app = App::new("original", "/workspace", None);
+    app.enter_picker();
+    app.set_picker_agents(vec![
+        AgentInfo { s_id: "a1".into(), name: "alpha".into(), description: "".into(), scope: "".into() },
+        AgentInfo { s_id: "a2".into(), name: "beta".into(),  description: "".into(), scope: "".into() },
+    ]);
+    app.set_picker_filter("beta");
+    let filtered = app.picker_filtered_agents();
+    // selected == 0 after filter reset, first (and only) result is beta
+    let agent = filtered.get(app.picker_selected()).unwrap();
+    app.switch_agent(&agent.s_id, &agent.name);
+
+    assert_eq!(app.agent_name(), "beta");
+    // Ensure app-level agent id is updated (visible through push_system_message content)
+    let last = app.messages().last().unwrap();
+    assert!(last.content.contains("beta"));
+}</code></pre>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section>
+  <h2><span class="num">4</span> File-Level Change Summary</h2>
+
+  <table>
+    <tr>
+      <th>File</th>
+      <th>Location</th>
+      <th>Change Type</th>
+      <th>Description</th>
+    </tr>
+    <tr>
+      <td><code>src/main.rs</code></td>
+      <td>Line 522 (fn signature)</td>
+      <td><span class="tag tag-fix">fix</span></td>
+      <td>Change <code>client: Option&lt;DustClient&gt;</code> to <code>client: &amp;mut Option&lt;DustClient&gt;</code></td>
+    </tr>
+    <tr>
+      <td><code>src/main.rs</code></td>
+      <td>Lines 537–539 (Select arm)</td>
+      <td><span class="tag tag-fix">fix</span></td>
+      <td>Change <code>if let Some(mut c) = client</code> to <code>if let Some(c) = client.as_mut()</code></td>
+    </tr>
+    <tr>
+      <td><code>src/main.rs</code></td>
+      <td>Line 874 (call site)</td>
+      <td><span class="tag tag-fix">fix</span></td>
+      <td>Change <code>client.clone()</code> to <code>&amp;mut client</code></td>
+    </tr>
+    <tr>
+      <td><code>src/app.rs</code></td>
+      <td>Lines 338–343 (set_picker_filter)</td>
+      <td><span class="tag tag-mod">verify</span></td>
+      <td>No code change needed — <code>selected = 0</code> already present. Add accessor if needed for tests.</td>
+    </tr>
+    <tr>
+      <td><code>src/app.rs</code></td>
+      <td>Test module (after line 1349)</td>
+      <td><span class="tag tag-new">test</span></td>
+      <td>Add 3 unit tests covering filter reset and agent switch persistence</td>
+    </tr>
+  </table>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section>
+  <h2><span class="num">5</span> Testing Strategy</h2>
+
+  <h3>Unit tests (automated)</h3>
+  <div class="card card-success">
+    <ul>
+      <li><strong>Test A</strong> — <code>switch_agent_updates_agent_id</code>: verifies <code>App::agent_id</code> is updated by <code>switch_agent()</code>. This is the ground-truth assertion for the App layer.</li>
+      <li><strong>Test B</strong> — <code>set_picker_filter_resets_selected_index</code>: pins the defensive <code>selected = 0</code> reset so future refactors cannot accidentally remove it.</li>
+      <li><strong>Test C</strong> — <code>switch_agent_persists_after_filter</code>: end-to-end walk through the picker selection path in App layer, verifying the correct agent ends up as <code>agent_name</code>.</li>
+    </ul>
+    <p>Run with: <code>cargo test</code></p>
+  </div>
+
+  <h3>Clippy (strict)</h3>
+  <div class="card">
+    <p>The signature change introduces <code>&amp;mut Option&lt;DustClient&gt;</code> which clippy may flag as <code>clippy::option_as_ref_deref</code> or similar. Run after changes:</p>
+    <pre><code>cargo clippy -- -W clippy::all -W clippy::pedantic -W clippy::nursery</code></pre>
+    <p>If clippy suggests <code>client.as_deref_mut()</code> or a pattern variant, follow its advice — it will not affect correctness.</p>
+  </div>
+
+  <h3>Manual TUI test (tmux)</h3>
+  <div class="card">
+    <pre><code># Start oxide in a tmux session
+tmux new-session -d -s switch-test -x 120 -y 30 "cargo run"
+sleep 3
+
+# Open the agent picker
+tmux send-keys -t switch-test "/switch" Enter
+sleep 1
+tmux capture-pane -t switch-test -p
+# You should see the picker modal
+
+# Type to filter, select an agent different from the default
+tmux send-keys -t switch-test "hel"   # filter to 'helper' or similar
+sleep 0.5
+tmux send-keys -t switch-test Enter   # confirm selection
+sleep 1
+tmux capture-pane -t switch-test -p
+# Expect: "Switched to &lt;new-agent&gt;" system message
+
+# Now send a message and verify it goes to the new agent
+tmux send-keys -t switch-test "hello" Enter
+sleep 5
+tmux capture-pane -t switch-test -p
+# The streaming response should come from the new agent
+
+# Cleanup
+tmux kill-session -t switch-test</code></pre>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section>
+  <h2><span class="num">6</span> Risk Assessment</h2>
+
+  <div class="card card-warning">
+    <h3>Risk 1 — Borrow checker conflict in the select! block</h3>
+    <p>
+      The main loop's <code>tokio::select!</code> block (line 862–926) uses <code>client</code> in multiple arms:
+    </p>
+    <ul>
+      <li>Line 865: <code>if let Some(ref mut c) = client</code> — already <code>&amp;mut</code></li>
+      <li>Line 874: proposed <code>&amp;mut client</code> — new mutable borrow</li>
+      <li>Line 884: <code>client.clone()</code> — cloned, no borrow</li>
+      <li>Line 889: <code>client.clone()</code> — cloned, no borrow</li>
+      <li>Line 896: <code>client.as_ref()</code> — shared borrow</li>
+      <li>Line 916: <code>client.as_ref()</code> — shared borrow</li>
+      <li>Line 930: <code>client.clone()</code> — cloned, no borrow</li>
+    </ul>
+    <p>
+      Because <code>tokio::select!</code> only executes one arm per iteration, borrows do not overlap at runtime. However, the Rust borrow checker analyses them statically within the macro expansion. The existing <code>client.clone()</code> pattern was used precisely to avoid this — switching to <code>&amp;mut client</code> for only the Picker arm should compile cleanly because only one arm is active per iteration and the macro generates separate scopes. If a borrow conflict does occur at compile time, the fix is straightforward: extract the mutable borrow into a helper that takes <code>&amp;mut Option&lt;DustClient&gt;</code> and is called <em>outside</em> the select block (moving the dispatch earlier).
+    </p>
+    <p><strong>Mitigation:</strong> Run <code>cargo check</code> immediately after the signature change. If it fails, the implementer should move the picker key handling outside the <code>select!</code> block by staging the action and executing it after the <code>select!</code>.</p>
+  </div>
+
+  <div class="card card-info">
+    <h3>Risk 2 — agent_id field is private in App</h3>
+    <p>
+      Test A requires reading <code>app.agent_id</code>. This field has no public getter. Two options:
+    </p>
+    <ul>
+      <li><strong>Option A (recommended)</strong>: Add <code>pub fn agent_id(&amp;self) -&gt; &amp;str { &amp;self.agent_id }</code> to <code>App</code>. This is a clean public API that future features will also want.</li>
+      <li><strong>Option B</strong>: Test through <code>agent_name()</code> only, since <code>switch_agent</code> also updates <code>agent_name</code>. Simpler but tests less of the contract.</li>
+    </ul>
+    <p>The existing <code>DustClient::agent_id()</code> is already <code>#[cfg(test)]</code>-gated — follow the same pattern if adding to <code>App</code>.</p>
+  </div>
+
+  <div class="card card-success">
+    <h3>Risk 3 — No Dust API surface is affected</h3>
+    <p>
+      The fix is entirely within the TUI layer. <code>DustClient::set_agent()</code> already exists and works correctly. No HTTP calls, no serialisation changes, no SSE stream changes.
+    </p>
+  </div>
+
+  <div class="card card-success">
+    <h3>Risk 4 — handle_resume_picker_key_event is unaffected</h3>
+    <p>
+      The parallel <code>handle_resume_picker_key_event</code> function also receives <code>client: Option&lt;DustClient&gt;</code> by value, but it spawns a <code>tokio::spawn</code> that moves <code>client</code> into the async block — not calling <code>set_agent()</code>. No bug exists there. Do not change its signature.
+    </p>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section>
+  <h2><span class="num">7</span> Implementation Milestones</h2>
+
+  <div class="card">
+    <ol>
+      <li>
+        <strong>Milestone 1 — Signature fix</strong><br>
+        Change <code>handle_agent_picker_key_event</code> signature to <code>&amp;mut Option&lt;DustClient&gt;</code>. Update call site. Run <code>cargo check</code>. If borrow conflict, apply fallback strategy from Risk 1.
+      </li>
+      <li>
+        <strong>Milestone 2 — Select arm fix</strong><br>
+        Change <code>if let Some(mut c) = client</code> to <code>if let Some(c) = client.as_mut()</code> in the <code>PickerAction::Select</code> arm.
+      </li>
+      <li>
+        <strong>Milestone 3 — Accessor</strong><br>
+        Add <code>pub fn agent_id(&amp;self) -&gt; &amp;str</code> to <code>App</code> (or use <code>#[cfg(test)]</code> gate).
+      </li>
+      <li>
+        <strong>Milestone 4 — Tests</strong><br>
+        Add the three unit tests to <code>src/app.rs</code>. Run <code>cargo test</code>.
+      </li>
+      <li>
+        <strong>Milestone 5 — Lint</strong><br>
+        Run strict clippy and fix any warnings.
+      </li>
+      <li>
+        <strong>Milestone 6 — Manual verification</strong><br>
+        tmux session confirming correct agent receives next message after <code>/switch</code>.
+      </li>
+    </ol>
+  </div>
+</section>
+
+</body>
+</html>
