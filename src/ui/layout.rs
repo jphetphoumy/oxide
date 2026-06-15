@@ -55,11 +55,6 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
     frame.render_widget(title, chunks[0]);
 
     let hints = "Ctrl+C quit  Enter send  Alt+Enter newline";
-    let streaming_text = if app.is_streaming() {
-        " streaming..."
-    } else {
-        ""
-    };
 
     // Format active skills indicator
     let skills_text = if app.active_skills().is_empty() {
@@ -84,7 +79,6 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
     let agent_text = format!(" agent: {}", app.agent_name());
     let cwd_room = usize::from(area.width).saturating_sub(
         agent_text.chars().count()
-            + streaming_text.chars().count()
             + skills_text.chars().count()
             + subagent_text.chars().count()
             + hints.chars().count()
@@ -95,7 +89,6 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
     let hint_width = agent_text.chars().count()
         + cwd_separator.chars().count()
         + cwd_text.chars().count()
-        + streaming_text.chars().count()
         + skills_text.chars().count()
         + subagent_text.chars().count()
         + hints.chars().count();
@@ -125,10 +118,6 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
             Style::default().fg(Color::Rgb(188, 140, 255)),
         ));
     }
-    spans.push(Span::styled(
-        streaming_text,
-        Style::default().fg(Color::Yellow),
-    ));
     spans.push(Span::raw(" ".repeat(padding.into())));
     spans.push(Span::styled(hints, Style::default().fg(Color::DarkGray)));
     let status_line = Line::from(spans);

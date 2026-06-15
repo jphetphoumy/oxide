@@ -99,6 +99,7 @@ pub struct App {
     conversation_id: Option<String>,
     user_message_id: Option<String>,
     is_streaming: bool,
+    streaming_started_at: Option<std::time::Instant>,
     mode: AppMode,
     auto_approve_tools: bool,
     skills: Vec<crate::skills::Skill>,
@@ -120,6 +121,7 @@ impl App {
             conversation_id: None,
             user_message_id: None,
             is_streaming: false,
+            streaming_started_at: None,
             mode: AppMode::Chat,
             auto_approve_tools: false,
             skills: Vec::new(),
@@ -167,6 +169,10 @@ impl App {
 
     pub const fn is_streaming(&self) -> bool {
         self.is_streaming
+    }
+
+    pub const fn streaming_started_at(&self) -> Option<std::time::Instant> {
+        self.streaming_started_at
     }
 
     pub const fn should_quit(&self) -> bool {
@@ -241,6 +247,7 @@ impl App {
             content: String::new(),
         });
         self.is_streaming = true;
+        self.streaming_started_at = Some(std::time::Instant::now());
         self.scroll_offset = 0;
         true
     }
@@ -277,6 +284,7 @@ impl App {
         }
 
         self.is_streaming = false;
+        self.streaming_started_at = None;
         if was_at_bottom {
             self.scroll_offset = 0;
         }
@@ -288,6 +296,7 @@ impl App {
             content: content.to_string(),
         });
         self.is_streaming = false;
+        self.streaming_started_at = None;
         self.scroll_offset = 0;
     }
 
@@ -480,6 +489,7 @@ impl App {
             self.messages.push(Message { role, content });
         }
         self.is_streaming = false;
+        self.streaming_started_at = None;
         self.scroll_offset = 0;
         self.mode = AppMode::Chat;
         let title_str = title.unwrap_or("(untitled)");
@@ -1301,5 +1311,39 @@ mod tests {
         assert_eq!(app.tick_count(), 1);
         app.tick();
         assert_eq!(app.tick_count(), 2);
+    }
+
+    #[test]
+    fn send_message_sets_streaming_started_at() {
+        let mut app = App::new("a", "/workspace", None);
+        assert!(app.streaming_started_at().is_none());
+        assert!(app.send_message("hello"));
+        assert!(app.streaming_started_at().is_some());
+    }
+
+    #[test]
+    fn complete_stream_clears_streaming_started_at() {
+        let mut app = App::new("a", "/workspace", None);
+        assert!(app.send_message("hello"));
+        assert!(app.streaming_started_at().is_some());
+        app.complete_stream(Some("final"));
+        assert!(app.streaming_started_at().is_none());
+    }
+
+    #[test]
+    fn push_system_message_clears_streaming_started_at() {
+        let mut app = App::new("a", "/workspace", None);
+        assert!(app.send_message("hello"));
+        app.push_system_message("error occurred");
+        assert!(app.streaming_started_at().is_none());
+    }
+
+    #[test]
+    fn restore_conversation_clears_streaming_started_at() {
+        let mut app = App::new("a", "/workspace", None);
+        assert!(app.send_message("hello"));
+        assert!(app.streaming_started_at().is_some());
+        app.restore_conversation("conv-123".into(), vec![], None);
+        assert!(app.streaming_started_at().is_none());
     }
 }
