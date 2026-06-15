@@ -32,6 +32,9 @@ pub struct ToolApprovalState {
     pub tool_call: ToolCall,
     /// Present when this approval is for an MCP tool — on approve, call `validate_action`.
     pub mcp_approve: Option<McpApproveInfo>,
+    /// True when this approval is for an MCP transport tool call (`McpToolUse` event).
+    /// On approve/deny, use `post_mcp_result()` instead of `submit_tool_result()`.
+    pub mcp_transport: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -500,6 +503,7 @@ impl App {
         self.mode = AppMode::ToolApproval(ToolApprovalState {
             tool_call,
             mcp_approve: None,
+            mcp_transport: false,
         });
     }
 
@@ -508,6 +512,16 @@ impl App {
         self.mode = AppMode::ToolApproval(ToolApprovalState {
             tool_call,
             mcp_approve: Some(mcp_approve),
+            mcp_transport: false,
+        });
+    }
+
+    pub fn enter_mcp_transport_tool_approval(&mut self, tool_call: ToolCall) {
+        self.scroll_offset = 0;
+        self.mode = AppMode::ToolApproval(ToolApprovalState {
+            tool_call,
+            mcp_approve: None,
+            mcp_transport: true,
         });
     }
 
