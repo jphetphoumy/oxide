@@ -186,6 +186,13 @@ pub struct ListAgentsResponse {
     pub agent_configurations: Vec<AgentInfo>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextUsageResponse {
+    pub context_usage: Option<u32>,
+    pub context_size: Option<u32>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -449,5 +456,45 @@ mod tests {
 
         let tool_call = StreamEvent::extract_tool_use_from_action(&action);
         assert!(tool_call.is_none());
+    }
+
+    #[test]
+    fn context_usage_response_deserializes() {
+        let json = r#"{
+            "contextUsage": 12345,
+            "contextSize": 200000
+        }"#;
+
+        let response =
+            serde_json::from_str::<ContextUsageResponse>(json).expect("deserialize");
+        assert_eq!(response.context_usage, Some(12345));
+        assert_eq!(response.context_size, Some(200000));
+    }
+
+    #[test]
+    fn context_usage_response_handles_null_fields() {
+        let json = r#"{
+            "contextUsage": null,
+            "contextSize": null
+        }"#;
+
+        let response =
+            serde_json::from_str::<ContextUsageResponse>(json).expect("deserialize");
+        assert_eq!(response.context_usage, None);
+        assert_eq!(response.context_size, None);
+    }
+
+    #[test]
+    fn context_usage_response_ignores_model_field() {
+        let json = r#"{
+            "contextUsage": 5000,
+            "contextSize": 100000,
+            "model": {"providerId": "anthropic", "modelId": "claude-3-7-sonnet"}
+        }"#;
+
+        let response =
+            serde_json::from_str::<ContextUsageResponse>(json).expect("deserialize");
+        assert_eq!(response.context_usage, Some(5000));
+        assert_eq!(response.context_size, Some(100000));
     }
 }

@@ -146,6 +146,23 @@ fn handle_dust_message(
             if conv_id == app.conversation_id().map(ToString::to_string) =>
         {
             app.complete_stream(content.as_deref());
+
+            // Fetch context usage asynchronously; result arrives via DustEvent::ContextUsage
+            if let (Some(cid), Some(c)) = (
+                app.conversation_id().map(ToString::to_string),
+                client,
+            ) {
+                let client_clone = c.clone();
+                let dust_tx_clone = dust_tx.clone();
+                tokio::spawn(async move {
+                    if let Ok(Some(usage)) = client_clone.fetch_context_usage(&cid).await
+                        && let (Some(used), Some(size)) =
+                            (usage.context_usage, usage.context_size)
+                    {
+                        let _ = dust_tx_clone.send(DustEvent::ContextUsage { used, size });
+                    }
+                });
+            }
         }
         DustEvent::Error(error) => app.push_system_message(&error),
         DustEvent::ConversationCreated(conversation_id) => {
@@ -208,6 +225,9 @@ fn handle_dust_message(
             call_id, success, ..
         } => {
             app.complete_subagent(&call_id, success);
+        }
+        DustEvent::ContextUsage { used, size } => {
+            app.set_context_usage(used, size);
         }
         _ => {}
     }

@@ -106,6 +106,7 @@ pub struct App {
     active_skills: Vec<crate::skills::Skill>,
     subagent_count: usize,
     tick: u64,
+    context_usage: Option<(u32, u32)>,
 }
 
 impl App {
@@ -128,6 +129,7 @@ impl App {
             active_skills: Vec::new(),
             subagent_count: 0,
             tick: 0,
+            context_usage: None,
         }
     }
 
@@ -496,6 +498,7 @@ impl App {
         self.is_streaming = false;
         self.streaming_started_at = None;
         self.scroll_offset = 0;
+        self.context_usage = None;
         self.mode = AppMode::Chat;
         let title_str = title.unwrap_or("(untitled)");
         self.push_system_message(&format!("Resumed conversation: {title_str}"));
@@ -507,6 +510,7 @@ impl App {
         self.conversation_id = None;
         self.scroll_offset = 0;
         self.clear_active_skills();
+        self.context_usage = None;
         self.push_system_message(&format!(
             "Started a new conversation with {}",
             self.agent_name
@@ -581,6 +585,23 @@ impl App {
 
     pub fn clear_active_skills(&mut self) {
         self.active_skills.clear();
+    }
+
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn set_context_usage(&mut self, used: u32, size: u32) {
+        if size > 0 {
+            self.context_usage = Some((used, size));
+        }
+    }
+
+    pub fn context_usage_percent(&self) -> Option<u8> {
+        self.context_usage.map(|(used, size)| {
+            let percent = (f64::from(used) / f64::from(size)) * 100.0;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            {
+                percent.round().min(100.0) as u8
+            }
+        })
     }
 }
 
@@ -1432,5 +1453,54 @@ mod tests {
         app.switch_agent("a2", "Helper");
         assert_eq!(app.agent_id(), "a2");
         assert_eq!(app.agent_name(), "Helper");
+    }
+
+    #[test]
+    fn set_context_usage_stores_value() {
+        let mut app = App::new("a", "/workspace", None);
+        app.set_context_usage(42000, 100000);
+        assert_eq!(app.context_usage_percent(), Some(42));
+    }
+
+    #[test]
+    fn set_context_usage_zero_size_is_ignored() {
+        let mut app = App::new("a", "/workspace", None);
+        app.set_context_usage(100, 0);
+        assert_eq!(app.context_usage_percent(), None);
+    }
+
+    #[test]
+    fn new_conversation_clears_context_usage() {
+        let mut app = App::new("a", "/workspace", None);
+        app.set_context_usage(42000, 100000);
+        assert_eq!(app.context_usage_percent(), Some(42));
+        app.new_conversation();
+        assert_eq!(app.context_usage_percent(), None);
+    }
+
+    #[test]
+    fn restore_conversation_clears_context_usage() {
+        let mut app = App::new("a", "/workspace", None);
+        app.set_context_usage(42000, 100000);
+        assert_eq!(app.context_usage_percent(), Some(42));
+        app.restore_conversation("conv_123".to_string(), vec![], None);
+        assert_eq!(app.context_usage_percent(), None);
+    }
+
+    #[test]
+    fn context_usage_percent_rounds_correctly() {
+        let mut app = App::new("a", "/workspace", None);
+        app.set_context_usage(0, 100);
+        assert_eq!(app.context_usage_percent(), Some(0));
+        app.set_context_usage(69, 100);
+        assert_eq!(app.context_usage_percent(), Some(69));
+        app.set_context_usage(70, 100);
+        assert_eq!(app.context_usage_percent(), Some(70));
+        app.set_context_usage(79, 100);
+        assert_eq!(app.context_usage_percent(), Some(79));
+        app.set_context_usage(80, 100);
+        assert_eq!(app.context_usage_percent(), Some(80));
+        app.set_context_usage(100, 100);
+        assert_eq!(app.context_usage_percent(), Some(100));
     }
 }
