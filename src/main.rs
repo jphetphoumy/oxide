@@ -368,6 +368,8 @@ fn handle_tool_approve_execution_event(
     let is_safe_tool = tool_name == SAFE_TOOL_NAME;
     let should_auto_approve = app.auto_approve_tools() || is_safe_tool;
     if should_auto_approve {
+        // No pre-approval mark needed: handle_mcp_tool_use_event also checks auto_approve_tools /
+        // is_safe_tool independently, so the subsequent McpToolUse will also be auto-executed.
         tracing::debug!(action_id = %mcp_info.action_id, "auto-approving MCP tool");
         let dust_client = client.cloned();
         let mcp_info_moved = mcp_info;

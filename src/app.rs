@@ -524,6 +524,7 @@ impl App {
         self.conversation_id = None;
         self.scroll_offset = 0;
         self.clear_active_skills();
+        self.pending_mcp_transport_approvals.clear();
         // context_size is preserved — the agent hasn't changed
         self.context_usage = None;
         self.push_system_message(&format!(
@@ -561,6 +562,8 @@ impl App {
 
     /// Records that the user approved a Dust-side `ToolApproveExecution` for `tool_name`.
     /// The next `McpToolUse` for the same tool will be auto-approved to avoid a double prompt.
+    /// Called synchronously before the `validate_action` spawn, so the entry is always present
+    /// before Dust can deliver the subsequent `tools/call` over the MCP transport.
     pub fn mark_tool_transport_pre_approved(&mut self, tool_name: String) {
         tracing::debug!(tool = %tool_name, "marking MCP transport call as pre-approved");
         self.pending_mcp_transport_approvals.push_back(tool_name);
@@ -1323,6 +1326,15 @@ mod tests {
 
         assert!(app.consume_transport_pre_approval("bash"));
         assert!(app.consume_transport_pre_approval("bash"));
+        assert!(!app.consume_transport_pre_approval("bash"));
+    }
+
+    #[test]
+    fn new_conversation_clears_pending_pre_approvals() {
+        let mut app = App::new("test-agent", "/workspace", None);
+        app.mark_tool_transport_pre_approved("bash".to_string());
+        app.new_conversation();
+        // Pre-approval should be gone — a gate in the new conversation must not be suppressed.
         assert!(!app.consume_transport_pre_approval("bash"));
     }
 
