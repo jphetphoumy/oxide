@@ -187,6 +187,17 @@ fn handle_dust_message(
                 })
                 .collect();
             app.restore_conversation(conversation_id, role_messages, title.as_deref());
+            if let (Some(cid), Some(c)) = (app.conversation_id().map(ToString::to_string), client) {
+                let client_clone = c.clone();
+                let dust_tx_clone = dust_tx.clone();
+                tokio::spawn(async move {
+                    if let Ok(Some(usage)) = client_clone.fetch_context_usage(&cid).await
+                        && let (Some(used), Some(size)) = (usage.context_usage, usage.context_size)
+                    {
+                        let _ = dust_tx_clone.send(DustEvent::ContextUsage { used, size });
+                    }
+                });
+            }
         }
         DustEvent::ToolUse(tool_call) => {
             handle_tool_use_event(tool_call, app, client, mcp_manager, dust_tx);
