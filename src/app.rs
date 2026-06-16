@@ -507,6 +507,7 @@ impl App {
         self.is_streaming = false;
         self.streaming_started_at = None;
         self.scroll_offset = 0;
+        // context_size is preserved — the agent hasn't changed
         self.context_usage = None;
         self.mode = AppMode::Chat;
         let title_str = title.unwrap_or("(untitled)");
@@ -519,6 +520,7 @@ impl App {
         self.conversation_id = None;
         self.scroll_offset = 0;
         self.clear_active_skills();
+        // context_size is preserved — the agent hasn't changed
         self.context_usage = None;
         self.push_system_message(&format!(
             "Started a new conversation with {}",
@@ -1545,5 +1547,53 @@ mod tests {
         assert_eq!(app.context_usage_percent(), Some(80));
         app.set_context_usage(100, 100);
         assert_eq!(app.context_usage_percent(), Some(100));
+    }
+
+    #[test]
+    fn context_usage_display_no_data() {
+        let app = App::new("a", "/workspace", None);
+        assert_eq!(app.context_usage_display(), " ctx:--");
+    }
+
+    #[test]
+    fn context_usage_display_size_known_no_usage() {
+        let mut app = App::new("a", "/workspace", None);
+        app.context_size = Some(200_000);
+        assert_eq!(app.context_usage_display(), " ctx:0%/200K");
+    }
+
+    #[test]
+    fn context_usage_display_both_known() {
+        let mut app = App::new("a", "/workspace", None);
+        app.set_context_usage(100_000, 200_000);
+        assert_eq!(app.context_usage_display(), " ctx:50%/200K");
+    }
+
+    #[test]
+    fn format_context_size_plain_number() {
+        assert_eq!(format_context_size(999), "999");
+    }
+
+    #[test]
+    fn format_context_size_with_k_suffix() {
+        assert_eq!(format_context_size(1_000), "1K");
+        assert_eq!(format_context_size(200_000), "200K");
+        assert_eq!(format_context_size(999_999), "999K");
+    }
+
+    #[test]
+    fn format_context_size_with_m_suffix() {
+        assert_eq!(format_context_size(1_000_000), "1M");
+        assert_eq!(format_context_size(5_000_000), "5M");
+    }
+
+    #[test]
+    fn switch_agent_with_context_size() {
+        let mut app = App::new("old-agent", "/workspace", None);
+        app.set_context_usage(50_000, 100_000);
+        assert_eq!(app.context_usage_percent(), Some(50));
+        app.switch_agent("new-agent-id", "new-agent", Some(200_000));
+        assert_eq!(app.context_usage_percent(), None);
+        assert_eq!(app.context_usage_display(), " ctx:0%/200K");
     }
 }
