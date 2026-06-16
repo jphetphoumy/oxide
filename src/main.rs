@@ -873,6 +873,9 @@ async fn run_tui_main_loop(
     // Set event_tx on MCP manager for SubagentStarted/Finished events
     mcp_manager.lock().await.set_event_tx(dust_tx.clone());
 
+    // Fetch agents at startup to seed context_size for the default agent
+    handle_agent_picker_selection(client.clone(), agent_tx.clone());
+
     // Spawn MCP transport: registers oxide-fs with Dust and receives tool calls via SSE
     let (mcp_server_id_tx, mut mcp_server_id_rx) = mpsc::unbounded_channel::<String>();
     spawn_mcp_transport(
