@@ -218,6 +218,7 @@ fn handle_dust_message(
                 inputs,
                 app,
                 client,
+                dust_tx,
             );
         }
         DustEvent::McpToolUse(tool_call) => {
@@ -385,6 +386,7 @@ fn handle_mcp_tool_use_event(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_tool_approve_execution_event(
     action_id: String,
     conversation_id: String,
@@ -393,6 +395,7 @@ fn handle_tool_approve_execution_event(
     inputs: serde_json::Value,
     app: &mut App,
     client: Option<&DustClient>,
+    dust_tx: &tokio::sync::mpsc::UnboundedSender<DustEvent>,
 ) {
     let fake_call = crate::mcp::ToolCall {
         id: action_id.clone(),
@@ -410,8 +413,13 @@ fn handle_tool_approve_execution_event(
         // No pre-approval mark needed: handle_mcp_tool_use_event also checks auto_approve_tools /
         // is_safe_tool independently, so the subsequent McpToolUse will also be auto-executed.
         tracing::debug!(action_id = %mcp_info.action_id, "auto-approving MCP tool");
+        let call_id = app.push_tool_call(fake_call);
+        app.set_tool_call_running(&call_id);
+
         let dust_client = client.cloned();
         let mcp_info_moved = mcp_info;
+        let call_id_clone = call_id.clone();
+        let dust_tx_inner = dust_tx.clone();
         tokio::spawn(async move {
             if let Some(c) = dust_client
                 && let Err(e) = c
@@ -424,6 +432,18 @@ fn handle_tool_approve_execution_event(
                     .await
             {
                 tracing::error!(error = %e, "failed to auto-validate MCP action");
+                let _ = dust_tx_inner.send(DustEvent::ToolCallResult {
+                    call_id: call_id_clone,
+                    result: format!("error: {e}"),
+                    is_error: true,
+                });
+            } else {
+                // Auto-approval succeeded, mark as done with empty result
+                let _ = dust_tx_inner.send(DustEvent::ToolCallResult {
+                    call_id: call_id_clone,
+                    result: String::new(),
+                    is_error: false,
+                });
             }
         });
     } else {
@@ -488,6 +508,17 @@ fn drain_pending_dust_events(
                 call_id, success, ..
             } => {
                 app.complete_subagent(&call_id, success);
+            }
+            DustEvent::ToolCallResult {
+                call_id,
+                result,
+                is_error,
+            } => {
+                if is_error {
+                    app.fail_tool_call(&call_id, result);
+                } else {
+                    app.complete_tool_call(&call_id, result);
+                }
             }
             _ => {}
         }

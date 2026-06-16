@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use crate::app::{App, AppMode, Role, SubagentCallState, ToolCallEntry, ToolCallStatus};
+use crate::app::{App, Role, SubagentCallState, ToolCallEntry, ToolCallStatus};
 
 const INDENT: &str = "   ";
 const SPINNER_FRAMES: &[&str] = &["⟳", "↻"];
@@ -70,7 +70,7 @@ pub fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
             }
             Role::ToolCall(entry) => {
                 lines.push(Line::from(""));
-                lines.extend(tool_call_lines(entry, body_width));
+                lines.extend(tool_call_lines(entry, body_width, app.tick_count()));
             }
         }
     }
@@ -79,14 +79,6 @@ pub fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
         lines.extend(streaming_indicator_lines(
             app.streaming_started_at(),
             app.tick_count(),
-        ));
-    }
-
-    if let AppMode::ToolApproval(state) = app.mode() {
-        lines.extend(tool_approval_lines(
-            &state.tool_call.name,
-            &state.tool_call.input,
-            body_width,
         ));
     }
 
@@ -106,22 +98,26 @@ pub fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(messages_widget, area);
 }
 
-fn tool_call_lines(entry: &ToolCallEntry, width: usize) -> Vec<Line<'static>> {
+fn tool_call_lines(entry: &ToolCallEntry, width: usize, tick: u64) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     // Extract argument preview from input JSON
     let arg_preview = extract_arg_preview(&entry.input, 60);
 
-    // Header line with bullet and tool name + args
+    // Build header line with bullet and tool name + args
     let (bullet, bullet_color) = match entry.status {
         ToolCallStatus::Pending => ("●", Color::Yellow),
-        ToolCallStatus::Running => ("⟳", Color::Yellow),
+        ToolCallStatus::Running => {
+            #[allow(clippy::cast_possible_truncation)]
+            let frame_idx = (tick as usize) % SPINNER_FRAMES.len();
+            (SPINNER_FRAMES[frame_idx], Color::Yellow)
+        }
         ToolCallStatus::Done => ("●", Color::White),
         ToolCallStatus::Failed => ("●", Color::Red),
         ToolCallStatus::Denied => ("●", Color::DarkGray),
     };
 
-    lines.push(Line::from(vec![
+    let mut header_spans = vec![
         Span::styled(format!("  {bullet} "), Style::default().fg(bullet_color)),
         Span::styled(
             entry.tool_name.clone(),
@@ -130,7 +126,21 @@ fn tool_call_lines(entry: &ToolCallEntry, width: usize) -> Vec<Line<'static>> {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(format!("({arg_preview})")),
-    ]));
+    ];
+
+    // Add elapsed time to header for Done status
+    if entry.status == ToolCallStatus::Done {
+        let elapsed_secs = entry
+            .finished_at
+            .and_then(|finish| finish.checked_duration_since(entry.started_at))
+            .map_or(0, |d| d.as_secs());
+        header_spans.push(Span::styled(
+            format!("  ({elapsed_secs}s)"),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+
+    lines.push(Line::from(header_spans));
 
     // Status-specific lines
     match entry.status {
@@ -141,7 +151,7 @@ fn tool_call_lines(entry: &ToolCallEntry, width: usize) -> Vec<Line<'static>> {
                 Span::raw("  "),
                 Span::styled("[n] deny", Style::default().fg(Color::Red)),
                 Span::raw("  "),
-                Span::styled("[Esc] cancel", Style::default().fg(Color::DarkGray)),
+                Span::styled("[Esc] deny", Style::default().fg(Color::DarkGray)),
             ]));
         }
         ToolCallStatus::Running => {
@@ -157,10 +167,7 @@ fn tool_call_lines(entry: &ToolCallEntry, width: usize) -> Vec<Line<'static>> {
         }
         ToolCallStatus::Failed => {
             if let Some(error) = &entry.result {
-                lines.push(Line::from(vec![
-                    Span::styled("    ⎿  ", Style::default().fg(Color::Red)),
-                    Span::styled(error.clone(), Style::default().fg(Color::Red)),
-                ]));
+                render_tool_result_with_color(error, &mut lines, width, entry.expanded, Color::Red);
             }
         }
         ToolCallStatus::Denied => {
@@ -204,14 +211,28 @@ fn extract_arg_preview(input: &serde_json::Value, max_len: usize) -> String {
         _ => serde_json::to_string(input).unwrap_or_else(|_| "?".to_string()),
     };
 
-    if preview.len() > max_len {
-        format!("{}…", &preview[..max_len])
+    if preview.chars().count() > max_len {
+        let byte_boundary = preview
+            .char_indices()
+            .nth(max_len)
+            .map_or(preview.len(), |(i, _)| i);
+        format!("{}…", &preview[..byte_boundary])
     } else {
         preview
     }
 }
 
 fn render_tool_result(result: &str, lines: &mut Vec<Line<'static>>, width: usize, expanded: bool) {
+    render_tool_result_with_color(result, lines, width, expanded, Color::White);
+}
+
+fn render_tool_result_with_color(
+    result: &str,
+    lines: &mut Vec<Line<'static>>,
+    width: usize,
+    expanded: bool,
+    color: Color,
+) {
     let result_lines: Vec<&str> = result.lines().collect();
 
     if result_lines.is_empty() {
@@ -234,10 +255,16 @@ fn render_tool_result(result: &str, lines: &mut Vec<Line<'static>>, width: usize
         for (j, visual_line) in wrapped.into_iter().enumerate() {
             if i == 0 && j == 0 {
                 // First line gets the arrow
-                lines.push(Line::from(format!("    ⎿  {visual_line}")));
+                lines.push(Line::from(vec![
+                    Span::styled("    ⎿  ", Style::default().fg(color)),
+                    Span::styled(visual_line.to_string(), Style::default().fg(color)),
+                ]));
             } else {
                 // Subsequent lines get indent
-                lines.push(Line::from(format!("       {visual_line}")));
+                lines.push(Line::from(vec![
+                    Span::styled("       ", Style::default().fg(color)),
+                    Span::styled(visual_line.to_string(), Style::default().fg(color)),
+                ]));
             }
         }
     }
@@ -255,76 +282,6 @@ fn render_tool_result(result: &str, lines: &mut Vec<Line<'static>>, width: usize
             Style::default().fg(Color::DarkGray),
         )));
     }
-}
-
-fn tool_approval_lines(
-    tool_name: &str,
-    input: &serde_json::Value,
-    width: usize,
-) -> Vec<Line<'static>> {
-    let sep = "─".repeat(width.min(60));
-    let mut lines: Vec<Line<'static>> = vec![
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            "  ⚠ Approve tool call? ",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )]),
-        Line::from(Span::styled(
-            format!("  {sep}"),
-            Style::default().fg(Color::DarkGray),
-        )),
-        Line::from(vec![
-            Span::styled("  Tool: ", Style::default().fg(Color::White)),
-            Span::styled(
-                tool_name.to_string(),
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]),
-        Line::from(""),
-        Line::from(Span::styled("  Input:", Style::default().fg(Color::White))),
-    ];
-
-    match input {
-        serde_json::Value::Object(obj) => {
-            for (key, val) in obj {
-                let val_str = match val {
-                    serde_json::Value::String(s) => s.clone(),
-                    serde_json::Value::Number(n) => n.to_string(),
-                    serde_json::Value::Bool(b) => b.to_string(),
-                    serde_json::Value::Null => "null".to_string(),
-                    _ => serde_json::to_string(val).unwrap_or_else(|_| "?".to_string()),
-                };
-                lines.push(Line::from(Span::styled(
-                    format!("{INDENT}{key} = {val_str}"),
-                    Style::default().fg(Color::Cyan),
-                )));
-            }
-        }
-        _ => {
-            lines.push(Line::from(Span::styled(
-                format!("{INDENT}{input}"),
-                Style::default().fg(Color::Cyan),
-            )));
-        }
-    }
-
-    lines.push(Line::from(Span::styled(
-        format!("  {sep}"),
-        Style::default().fg(Color::DarkGray),
-    )));
-    lines.push(Line::from(vec![
-        Span::raw("  "),
-        Span::styled("[y] approve", Style::default().fg(Color::Green)),
-        Span::raw("  "),
-        Span::styled("[n] deny", Style::default().fg(Color::Red)),
-        Span::raw("  "),
-        Span::styled("[Esc] cancel", Style::default().fg(Color::DarkGray)),
-    ]));
-    lines
 }
 
 /// Wrap a single line of text into chunks that fit within `max_width` characters.
@@ -554,26 +511,20 @@ mod tests {
     }
 
     #[test]
-    fn tool_approval_block_visible_at_bottom() {
+    fn tool_call_pending_shows_inline_approval_hints() {
         use crate::mcp::ToolCall;
 
         let mut app = App::new("agent", "/workspace", None);
-        // Push enough messages that the approval block would be off-screen if scroll
-        // were not reset to 0.
-        for i in 0..10 {
-            app.push_system_message(&format!("message {i}"));
-        }
+        // The inline Pending entry should show even without entering ToolApproval mode
         let tool_call = ToolCall {
             id: "t1".into(),
             name: "oxide_bash".into(),
             input: serde_json::json!({"command": "ls -al"}),
         };
-        let call_id = "t1".to_string();
-        app.enter_tool_approval(tool_call, call_id);
+        app.push_tool_call(tool_call);
         assert_eq!(app.scroll_offset(), 0);
 
         let rows = render_messages_text(&app, 40, 6);
-        // Last visible rows should contain the approval prompt
         let all = rows.join("\n");
         assert!(
             all.contains("oxide_bash"),
@@ -583,19 +534,7 @@ mod tests {
             all.contains("[y] approve"),
             "approve hint not found in rendered output:\n{all}"
         );
-    }
-
-    #[test]
-    fn tool_approval_block_not_shown_in_chat_mode() {
-        let mut app = App::new("agent", "/workspace", None);
-        app.push_system_message("hello");
-
-        let rows = render_messages_text(&app, 40, 6);
-        let all = rows.join("\n");
-        assert!(
-            !all.contains("[y] approve"),
-            "approval block should not appear in Chat mode"
-        );
+        assert!(all.contains("[n] deny"), "deny hint not found:\n{all}");
     }
 
     #[test]
@@ -698,6 +637,28 @@ mod tests {
     }
 
     #[test]
+    fn tool_call_running_shows_spinner() {
+        use crate::mcp::ToolCall;
+
+        let mut app = App::new("agent", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "t1".into(),
+            name: "Bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        app.push_tool_call(tool_call);
+        app.set_tool_call_running("t1");
+
+        let rows = render_messages_text(&app, 60, 8);
+        let all = rows.join("\n");
+        assert!(all.contains("Bash"), "tool name not found: {all}");
+        assert!(
+            all.contains('⟳') || all.contains('↻'),
+            "spinner not found: {all}"
+        );
+    }
+
+    #[test]
     fn tool_call_done_shows_result_with_arrow() {
         use crate::mcp::ToolCall;
 
@@ -739,6 +700,27 @@ mod tests {
     }
 
     #[test]
+    fn tool_call_failed_shows_red_error() {
+        use crate::mcp::ToolCall;
+
+        let mut app = App::new("agent", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "t1".into(),
+            name: "Bash".into(),
+            input: serde_json::json!({"command": "bad_cmd"}),
+        };
+        app.push_tool_call(tool_call);
+        app.fail_tool_call("t1", "command not found".into());
+
+        let rows = render_messages_text(&app, 60, 8);
+        let all = rows.join("\n");
+        assert!(
+            all.contains("command not found"),
+            "error message not found: {all}"
+        );
+    }
+
+    #[test]
     fn tool_call_arg_preview_extracts_command_key() {
         let input = serde_json::json!({"command": "ls -la /tmp"});
         let preview = extract_arg_preview(&input, 60);
@@ -753,6 +735,18 @@ mod tests {
         assert!(preview.ends_with('…'));
         // The actual length includes the 3-byte UTF-8 ellipsis character, which is more than 20+1
         assert!(preview.len() > 20);
+    }
+
+    #[test]
+    fn tool_call_arg_preview_handles_multibyte_utf8_safely() {
+        // Japanese characters are multi-byte UTF-8
+        let input = serde_json::json!({"command": "日本語テキスト非常に長いコマンド"});
+        let preview = extract_arg_preview(&input, 5);
+        // Should not panic on byte boundary
+        assert!(preview.ends_with('…'));
+        // All chars before ellipsis should be valid
+        let chars: Vec<_> = preview.chars().collect();
+        assert!(chars.len() <= 6); // 5 chars + ellipsis
     }
 
     #[test]

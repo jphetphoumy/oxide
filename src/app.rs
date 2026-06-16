@@ -55,13 +55,9 @@ pub struct ToolCallEntry {
     pub status: ToolCallStatus,
     pub result: Option<String>,
     pub expanded: bool,
-    #[allow(dead_code)]
     pub started_at: std::time::Instant,
     pub finished_at: Option<std::time::Instant>,
 }
-
-#[allow(dead_code)]
-const TOOL_RESULT_PREVIEW_LINES: usize = 5;
 
 #[derive(Debug, Clone)]
 pub enum AppMode {
