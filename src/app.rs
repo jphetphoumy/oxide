@@ -29,6 +29,7 @@ pub struct McpApproveInfo {
 
 #[derive(Debug, Clone)]
 pub struct ToolApprovalState {
+    pub call_id: String,
     pub tool_call: ToolCall,
     /// Present when this approval is for an MCP tool — on approve, call `validate_action`.
     pub mcp_approve: Option<McpApproveInfo>,
@@ -36,6 +37,31 @@ pub struct ToolApprovalState {
     /// On approve/deny, use `post_mcp_result()` instead of `submit_tool_result()`.
     pub mcp_transport: bool,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolCallStatus {
+    Pending,
+    Running,
+    Done,
+    Failed,
+    Denied,
+}
+
+#[derive(Debug, Clone)]
+pub struct ToolCallEntry {
+    pub call_id: String,
+    pub tool_name: String,
+    pub input: serde_json::Value,
+    pub status: ToolCallStatus,
+    pub result: Option<String>,
+    pub expanded: bool,
+    #[allow(dead_code)]
+    pub started_at: std::time::Instant,
+    pub finished_at: Option<std::time::Instant>,
+}
+
+#[allow(dead_code)]
+const TOOL_RESULT_PREVIEW_LINES: usize = 5;
 
 #[derive(Debug, Clone)]
 pub enum AppMode {
@@ -67,6 +93,7 @@ pub enum Role {
     Agent(String),
     System,
     SubagentCall(SubagentCallState),
+    ToolCall(ToolCallEntry),
 }
 
 impl PartialEq for Role {
@@ -75,6 +102,7 @@ impl PartialEq for Role {
             (Self::User, Self::User) | (Self::System, Self::System) => true,
             (Self::Agent(a), Self::Agent(b)) => a == b,
             (Self::SubagentCall(a), Self::SubagentCall(b)) => a.call_id == b.call_id,
+            (Self::ToolCall(a), Self::ToolCall(b)) => a.call_id == b.call_id,
             _ => false,
         }
     }
@@ -538,27 +566,35 @@ impl App {
         ));
     }
 
-    pub fn enter_tool_approval(&mut self, tool_call: ToolCall) {
+    pub fn enter_tool_approval(&mut self, tool_call: ToolCall, call_id: String) {
         self.scroll_offset = 0;
         self.mode = AppMode::ToolApproval(ToolApprovalState {
+            call_id,
             tool_call,
             mcp_approve: None,
             mcp_transport: false,
         });
     }
 
-    pub fn enter_mcp_tool_approval(&mut self, tool_call: ToolCall, mcp_approve: McpApproveInfo) {
+    pub fn enter_mcp_tool_approval(
+        &mut self,
+        tool_call: ToolCall,
+        call_id: String,
+        mcp_approve: McpApproveInfo,
+    ) {
         self.scroll_offset = 0;
         self.mode = AppMode::ToolApproval(ToolApprovalState {
+            call_id,
             tool_call,
             mcp_approve: Some(mcp_approve),
             mcp_transport: false,
         });
     }
 
-    pub fn enter_mcp_transport_tool_approval(&mut self, tool_call: ToolCall) {
+    pub fn enter_mcp_transport_tool_approval(&mut self, tool_call: ToolCall, call_id: String) {
         self.scroll_offset = 0;
         self.mode = AppMode::ToolApproval(ToolApprovalState {
+            call_id,
             tool_call,
             mcp_approve: None,
             mcp_transport: true,
@@ -608,6 +644,94 @@ impl App {
         } else {
             None
         }
+    }
+
+    pub fn push_tool_call(&mut self, tool_call: ToolCall) -> String {
+        let call_id = tool_call.id.clone();
+        self.messages.push(Message {
+            role: Role::ToolCall(ToolCallEntry {
+                call_id: call_id.clone(),
+                tool_name: tool_call.name,
+                input: tool_call.input,
+                status: ToolCallStatus::Pending,
+                result: None,
+                expanded: false,
+                started_at: std::time::Instant::now(),
+                finished_at: None,
+            }),
+            content: String::new(),
+        });
+        self.scroll_offset = 0;
+        call_id
+    }
+
+    pub fn set_tool_call_running(&mut self, call_id: &str) {
+        for msg in self.messages.iter_mut().rev() {
+            if let Role::ToolCall(entry) = &mut msg.role
+                && entry.call_id == call_id
+            {
+                entry.status = ToolCallStatus::Running;
+                break;
+            }
+        }
+    }
+
+    pub fn complete_tool_call(&mut self, call_id: &str, result: String) {
+        for msg in self.messages.iter_mut().rev() {
+            if let Role::ToolCall(entry) = &mut msg.role
+                && entry.call_id == call_id
+            {
+                entry.status = ToolCallStatus::Done;
+                entry.result = Some(result);
+                entry.finished_at = Some(std::time::Instant::now());
+                break;
+            }
+        }
+    }
+
+    pub fn fail_tool_call(&mut self, call_id: &str, error: String) {
+        for msg in self.messages.iter_mut().rev() {
+            if let Role::ToolCall(entry) = &mut msg.role
+                && entry.call_id == call_id
+            {
+                entry.status = ToolCallStatus::Failed;
+                entry.result = Some(error);
+                entry.finished_at = Some(std::time::Instant::now());
+                break;
+            }
+        }
+    }
+
+    pub fn deny_tool_call(&mut self, call_id: &str) {
+        for msg in self.messages.iter_mut().rev() {
+            if let Role::ToolCall(entry) = &mut msg.role
+                && entry.call_id == call_id
+            {
+                entry.status = ToolCallStatus::Denied;
+                entry.finished_at = Some(std::time::Instant::now());
+                break;
+            }
+        }
+    }
+
+    pub fn toggle_tool_call_expanded(&mut self, call_id: &str) {
+        for msg in self.messages.iter_mut().rev() {
+            if let Role::ToolCall(entry) = &mut msg.role
+                && entry.call_id == call_id
+            {
+                entry.expanded = !entry.expanded;
+                break;
+            }
+        }
+    }
+
+    pub fn last_tool_call_id(&self) -> Option<String> {
+        for msg in self.messages.iter().rev() {
+            if let Role::ToolCall(entry) = &msg.role {
+                return Some(entry.call_id.clone());
+            }
+        }
+        None
     }
 
     pub fn set_skills(&mut self, skills: Vec<crate::skills::Skill>) {
@@ -1247,7 +1371,8 @@ mod tests {
         };
 
         app.scroll_up(5);
-        app.enter_tool_approval(tool_call.clone());
+        let call_id = "t1".to_string();
+        app.enter_tool_approval(tool_call.clone(), call_id);
         match app.mode() {
             AppMode::ToolApproval(_) => {}
             _ => panic!("Expected ToolApproval mode"),
@@ -1268,7 +1393,8 @@ mod tests {
             input: serde_json::json!({"command": "ls"}),
         };
 
-        app.enter_tool_approval(tool_call.clone());
+        let call_id = "t1".to_string();
+        app.enter_tool_approval(tool_call.clone(), call_id);
         let current = app.current_tool_call();
         assert!(current.is_some());
         assert_eq!(current.unwrap().id, "tool_123");
@@ -1284,7 +1410,8 @@ mod tests {
             input: serde_json::json!({"command": "ls"}),
         };
 
-        app.enter_tool_approval(tool_call);
+        let call_id = "t1".to_string();
+        app.enter_tool_approval(tool_call, call_id);
         app.exit_tool_approval();
         match app.mode() {
             AppMode::Chat => {}
@@ -1680,5 +1807,162 @@ mod tests {
         app.switch_agent("new-agent-id", "new-agent", Some(200_000));
         assert_eq!(app.context_usage_percent(), None);
         assert_eq!(app.context_usage_display(), " ctx:0%/200K");
+    }
+
+    #[test]
+    fn push_tool_call_adds_pending_entry() {
+        let mut app = App::new("a", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "t1".into(),
+            name: "Bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        let call_id = app.push_tool_call(tool_call);
+        assert_eq!(call_id, "t1");
+        assert_eq!(app.messages().len(), 1);
+        if let Role::ToolCall(entry) = &app.messages()[0].role {
+            assert_eq!(entry.call_id, "t1");
+            assert_eq!(entry.tool_name, "Bash");
+            assert_eq!(entry.status, ToolCallStatus::Pending);
+            assert!(entry.result.is_none());
+        } else {
+            panic!("expected ToolCall role");
+        }
+    }
+
+    #[test]
+    fn set_tool_call_running_transitions_status() {
+        let mut app = App::new("a", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "t1".into(),
+            name: "Bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        app.push_tool_call(tool_call);
+        app.set_tool_call_running("t1");
+        if let Role::ToolCall(entry) = &app.messages()[0].role {
+            assert_eq!(entry.status, ToolCallStatus::Running);
+        } else {
+            panic!("expected ToolCall role");
+        }
+    }
+
+    #[test]
+    fn complete_tool_call_updates_status_and_result() {
+        let mut app = App::new("a", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "t1".into(),
+            name: "Bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        app.push_tool_call(tool_call);
+        app.complete_tool_call("t1", "file1.txt\nfile2.txt".into());
+        if let Role::ToolCall(entry) = &app.messages()[0].role {
+            assert_eq!(entry.status, ToolCallStatus::Done);
+            assert_eq!(entry.result, Some("file1.txt\nfile2.txt".into()));
+            assert!(entry.finished_at.is_some());
+        } else {
+            panic!("expected ToolCall role");
+        }
+    }
+
+    #[test]
+    fn fail_tool_call_sets_failed_status() {
+        let mut app = App::new("a", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "t1".into(),
+            name: "Bash".into(),
+            input: serde_json::json!({"command": "bad"}),
+        };
+        app.push_tool_call(tool_call);
+        app.fail_tool_call("t1", "command not found".into());
+        if let Role::ToolCall(entry) = &app.messages()[0].role {
+            assert_eq!(entry.status, ToolCallStatus::Failed);
+            assert_eq!(entry.result, Some("command not found".into()));
+            assert!(entry.finished_at.is_some());
+        } else {
+            panic!("expected ToolCall role");
+        }
+    }
+
+    #[test]
+    fn deny_tool_call_sets_denied_status() {
+        let mut app = App::new("a", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "t1".into(),
+            name: "Bash".into(),
+            input: serde_json::json!({"command": "rm"}),
+        };
+        app.push_tool_call(tool_call);
+        app.deny_tool_call("t1");
+        if let Role::ToolCall(entry) = &app.messages()[0].role {
+            assert_eq!(entry.status, ToolCallStatus::Denied);
+            assert!(entry.finished_at.is_some());
+        } else {
+            panic!("expected ToolCall role");
+        }
+    }
+
+    #[test]
+    fn toggle_tool_call_expanded_flips_bool() {
+        let mut app = App::new("a", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "t1".into(),
+            name: "Bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        app.push_tool_call(tool_call);
+
+        if let Role::ToolCall(entry) = &app.messages()[0].role {
+            assert!(!entry.expanded);
+        } else {
+            panic!("expected ToolCall role");
+        }
+
+        app.toggle_tool_call_expanded("t1");
+        if let Role::ToolCall(entry) = &app.messages()[0].role {
+            assert!(entry.expanded);
+        } else {
+            panic!("expected ToolCall role");
+        }
+
+        app.toggle_tool_call_expanded("t1");
+        if let Role::ToolCall(entry) = &app.messages()[0].role {
+            assert!(!entry.expanded);
+        } else {
+            panic!("expected ToolCall role");
+        }
+    }
+
+    #[test]
+    fn last_tool_call_id_returns_most_recent() {
+        let mut app = App::new("a", "/workspace", None);
+        let tool_call1 = ToolCall {
+            id: "t1".into(),
+            name: "Bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        let tool_call2 = ToolCall {
+            id: "t2".into(),
+            name: "Python".into(),
+            input: serde_json::json!({"command": "print"}),
+        };
+        app.push_tool_call(tool_call1);
+        app.push_tool_call(tool_call2);
+        assert_eq!(app.last_tool_call_id(), Some("t2".into()));
+    }
+
+    #[test]
+    fn last_tool_call_id_none_when_no_tool_calls() {
+        let app = App::new("a", "/workspace", None);
+        assert_eq!(app.last_tool_call_id(), None);
+    }
+
+    #[test]
+    fn last_tool_call_id_ignores_other_roles() {
+        let mut app = App::new("a", "/workspace", None);
+        app.push_system_message("hello");
+        assert!(app.send_message("user message"));
+        assert_eq!(app.last_tool_call_id(), None);
     }
 }

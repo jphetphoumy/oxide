@@ -22,6 +22,7 @@ pub enum Action {
     ApproveTool,
     DenyTool,
     CancelStream,
+    ToggleToolExpand,
     None,
 }
 
@@ -32,6 +33,7 @@ const MOUSE_SCROLL_LINES: usize = 3;
 pub fn handle_key_event(key: KeyEvent) -> Action {
     match (key.code, key.modifiers) {
         (KeyCode::Char('c' | 'd'), KeyModifiers::CONTROL) => Action::Quit,
+        (KeyCode::Char('o'), KeyModifiers::CONTROL) => Action::ToggleToolExpand,
         (KeyCode::Enter, m) if m.contains(KeyModifiers::ALT) => Action::InsertNewline,
         (KeyCode::Enter, _) => Action::Submit,
         (KeyCode::Tab, _) => Action::TabComplete,
@@ -140,6 +142,11 @@ pub fn apply_action(app: &mut App, input: &mut InputBuffer, action: Action) -> A
         Action::MoveEnd => input.move_end(),
         Action::ScrollUp(n) => app.scroll_up(n),
         Action::ScrollDown(n) => app.scroll_down(n),
+        Action::ToggleToolExpand => {
+            if let Some(call_id) = app.last_tool_call_id() {
+                app.toggle_tool_call_expanded(&call_id);
+            }
+        }
         Action::ApproveTool | Action::DenyTool | Action::CancelStream | Action::None => {}
     }
 

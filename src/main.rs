@@ -129,6 +129,7 @@ fn handle_resume_picker_selection(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn handle_dust_message(
     message: DustEvent,
     app: &mut App,
@@ -236,10 +237,22 @@ fn handle_dust_message(
         DustEvent::ContextUsage { used, size } => {
             app.set_context_usage(used, size);
         }
+        DustEvent::ToolCallResult {
+            call_id,
+            result,
+            is_error,
+        } => {
+            if is_error {
+                app.fail_tool_call(&call_id, result);
+            } else {
+                app.complete_tool_call(&call_id, result);
+            }
+        }
         _ => {}
     }
 }
 
+#[allow(clippy::branches_sharing_code)]
 fn handle_tool_use_event(
     tool_call: crate::mcp::ToolCall,
     app: &mut App,
@@ -250,6 +263,9 @@ fn handle_tool_use_event(
     let is_safe_tool = tool_call.name == SAFE_TOOL_NAME;
     let should_auto_approve = app.auto_approve_tools() || is_safe_tool;
     if should_auto_approve {
+        let call_id = app.push_tool_call(tool_call.clone());
+        app.set_tool_call_running(&call_id);
+
         let tool_name = tool_call.name.clone();
         let input_json = tool_call.input.clone();
         let tool_use_id = tool_call.id;
@@ -258,10 +274,16 @@ fn handle_tool_use_event(
         let dust_client = client.cloned();
         let mcp = mcp_manager.clone();
         let dust_tx_inner = dust_tx.clone();
+        let call_id_clone = call_id.clone();
         tokio::spawn(async move {
             match mcp.lock().await.call_tool(&tool_name, input_json).await {
                 Ok(mut result) => {
                     result.tool_use_id = tool_use_id;
+                    let _ = dust_tx_inner.send(DustEvent::ToolCallResult {
+                        call_id: call_id_clone.clone(),
+                        result: result.content.clone(),
+                        is_error: result.is_error,
+                    });
                     if let (Some(conv_id), Some(c)) =
                         (conversation_id.as_ref(), dust_client.as_ref())
                     {
@@ -282,12 +304,19 @@ fn handle_tool_use_event(
                     }
                 }
                 Err(e) => {
+                    let error_msg = format!("error: {e}");
+                    let _ = dust_tx_inner.send(DustEvent::ToolCallResult {
+                        call_id: call_id_clone,
+                        result: error_msg,
+                        is_error: true,
+                    });
                     tracing::error!(tool = %tool_name, error = %e, "tool execution failed");
                 }
             }
         });
     } else {
-        app.enter_tool_approval(tool_call);
+        let call_id = app.push_tool_call(tool_call.clone());
+        app.enter_tool_approval(tool_call, call_id);
     }
 }
 
@@ -304,6 +333,9 @@ fn handle_mcp_tool_use_event(
     let should_auto_approve = app.auto_approve_tools() || is_safe_tool || pre_approved;
     if should_auto_approve {
         tracing::debug!(tool = %tool_call.name, "auto-approving MCP tool call");
+        let call_id = app.push_tool_call(tool_call.clone());
+        app.set_tool_call_running(&call_id);
+
         let tool_name = tool_call.name.clone();
         let input_json = tool_call.input.clone();
         let tool_use_id = tool_call.id.clone();
@@ -312,6 +344,7 @@ fn handle_mcp_tool_use_event(
         let conversation_id = app.conversation_id().map(ToString::to_string);
         let user_message_id = app.user_message_id().map(ToString::to_string);
         let resume_tx = dust_tx.clone();
+        let call_id_clone = call_id.clone();
         tokio::spawn(async move {
             let (content, is_error) = match mcp.lock().await.call_tool(&tool_name, input_json).await
             {
@@ -321,6 +354,11 @@ fn handle_mcp_tool_use_event(
                     (format!("error: {e}"), true)
                 }
             };
+            let _ = resume_tx.send(DustEvent::ToolCallResult {
+                call_id: call_id_clone,
+                result: content.clone(),
+                is_error,
+            });
             if let Some(c) = dust_client {
                 if let Err(e) = c.post_mcp_result(&tool_use_id, &content, is_error).await {
                     tracing::error!(error = %e, "failed to post MCP tool result");
@@ -342,7 +380,8 @@ fn handle_mcp_tool_use_event(
     } else {
         tracing::debug!(tool = %tool_call.name, "showing McpToolUse gate to user (no pre-approval found)");
         // MCP external tools require approval - mark as MCP transport so we use post_mcp_result
-        app.enter_mcp_transport_tool_approval(tool_call.clone());
+        let call_id = app.push_tool_call(tool_call.clone());
+        app.enter_mcp_transport_tool_approval(tool_call.clone(), call_id);
     }
 }
 
@@ -388,8 +427,8 @@ fn handle_tool_approve_execution_event(
             }
         });
     } else {
-        tracing::debug!(tool = %tool_name, action_id = %mcp_info.action_id, "showing ToolApproveExecution gate to user");
-        app.enter_mcp_tool_approval(fake_call, mcp_info);
+        let call_id = app.push_tool_call(fake_call.clone());
+        app.enter_mcp_tool_approval(fake_call, call_id, mcp_info);
     }
 }
 
@@ -455,6 +494,7 @@ fn drain_pending_dust_events(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn handle_approve_tool_action(
     state: crate::app::ToolApprovalState,
     app: &mut App,
@@ -463,15 +503,15 @@ fn handle_approve_tool_action(
     dust_tx: &tokio::sync::mpsc::UnboundedSender<DustEvent>,
 ) {
     let tool_call = state.tool_call.clone();
+    let call_id = state.call_id.clone();
+    app.set_tool_call_running(&call_id);
     app.exit_tool_approval();
     let dust_client = client;
     let mcp = mcp_manager.clone();
     let dust_tx_inner = dust_tx.clone();
     if let Some(mcp_info) = state.mcp_approve {
-        // Dust-side gate: approve via validate_action, then record the tool name so the
-        // subsequent McpToolUse from the MCP transport does not show a second approval window.
-        app.mark_tool_transport_pre_approved(tool_call.name.clone());
-        tracing::debug!(tool = %tool_call.name, "user approved ToolApproveExecution; validate_action will be called");
+        // MCP flow: just approve via validate_action
+        let call_id_clone = call_id.clone();
         tokio::spawn(async move {
             if let Some(c) = dust_client
                 && let Err(e) = c
@@ -484,6 +524,11 @@ fn handle_approve_tool_action(
                     .await
             {
                 tracing::error!(error = %e, "failed to validate MCP action");
+                let _ = dust_tx_inner.send(DustEvent::ToolCallResult {
+                    call_id: call_id_clone,
+                    result: format!("error: {e}"),
+                    is_error: true,
+                });
             }
         });
     } else if state.mcp_transport {
@@ -494,6 +539,7 @@ fn handle_approve_tool_action(
         let dust_client_moved = dust_client;
         let conversation_id = app.conversation_id().map(ToString::to_string);
         let user_message_id = app.user_message_id().map(ToString::to_string);
+        let call_id_clone = call_id.clone();
         tokio::spawn(async move {
             let (content, is_error) = match mcp.lock().await.call_tool(&tool_name, input_json).await
             {
@@ -503,6 +549,11 @@ fn handle_approve_tool_action(
                     (format!("error: {e}"), true)
                 }
             };
+            let _ = dust_tx_inner.send(DustEvent::ToolCallResult {
+                call_id: call_id_clone,
+                result: content.clone(),
+                is_error,
+            });
             if let Some(c) = dust_client_moved {
                 if let Err(e) = c.post_mcp_result(&tool_use_id, &content, is_error).await {
                     tracing::error!(error = %e, "failed to post MCP tool result");
@@ -526,10 +577,16 @@ fn handle_approve_tool_action(
         let tool_use_id = tool_call.id;
         let conversation_id = app.conversation_id().map(ToString::to_string);
         let user_message_id = app.user_message_id().map(ToString::to_string);
+        let call_id_clone = call_id.clone();
         tokio::spawn(async move {
             match mcp.lock().await.call_tool(&tool_name, input_json).await {
                 Ok(mut result) => {
                     result.tool_use_id = tool_use_id;
+                    let _ = dust_tx_inner.send(DustEvent::ToolCallResult {
+                        call_id: call_id_clone,
+                        result: result.content.clone(),
+                        is_error: result.is_error,
+                    });
                     if let (Some(conv_id), Some(c)) =
                         (conversation_id.as_ref(), dust_client.as_ref())
                     {
@@ -550,6 +607,11 @@ fn handle_approve_tool_action(
                     }
                 }
                 Err(e) => {
+                    let _ = dust_tx_inner.send(DustEvent::ToolCallResult {
+                        call_id: call_id_clone,
+                        result: format!("error: {e}"),
+                        is_error: true,
+                    });
                     tracing::error!(tool = %tool_name, error = %e, "tool execution failed");
                 }
             }
@@ -739,7 +801,9 @@ fn handle_deny_tool_action(
     app: &mut App,
     client: Option<DustClient>,
 ) {
+    let call_id = state.call_id.clone();
     let tool_call = state.tool_call.clone();
+    app.deny_tool_call(&call_id);
     app.exit_tool_approval();
     let dust_client = client;
     if let Some(mcp_info) = state.mcp_approve {
