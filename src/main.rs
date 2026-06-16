@@ -138,12 +138,12 @@ fn handle_dust_message(
 ) {
     match message {
         DustEvent::Token(token, conv_id)
-            if conv_id == app.conversation_id().map(ToString::to_string) =>
+            if conv_id == app.conversation_id().map(ToString::to_string) && app.is_streaming() =>
         {
             app.append_agent_token(&token);
         }
         DustEvent::Complete(content, conv_id)
-            if conv_id == app.conversation_id().map(ToString::to_string) =>
+            if conv_id == app.conversation_id().map(ToString::to_string) && app.is_streaming() =>
         {
             app.complete_stream(content.as_deref());
 
@@ -400,12 +400,14 @@ fn drain_pending_dust_events(
     while let Ok(message) = dust_rx.try_recv() {
         match message {
             DustEvent::Token(token, conv_id)
-                if conv_id == app.conversation_id().map(ToString::to_string) =>
+                if conv_id == app.conversation_id().map(ToString::to_string)
+                    && app.is_streaming() =>
             {
                 app.append_agent_token(&token);
             }
             DustEvent::Complete(content, conv_id)
-                if conv_id == app.conversation_id().map(ToString::to_string) =>
+                if conv_id == app.conversation_id().map(ToString::to_string)
+                    && app.is_streaming() =>
             {
                 app.complete_stream(content.as_deref());
             }
