@@ -146,6 +146,19 @@ fn handle_dust_message(
             if conv_id == app.conversation_id().map(ToString::to_string) =>
         {
             app.complete_stream(content.as_deref());
+
+            // Fetch context usage asynchronously; result arrives via DustEvent::ContextUsage
+            if let (Some(cid), Some(c)) = (app.conversation_id().map(ToString::to_string), client) {
+                let client_clone = c.clone();
+                let dust_tx_clone = dust_tx.clone();
+                tokio::spawn(async move {
+                    if let Ok(Some(usage)) = client_clone.fetch_context_usage(&cid).await
+                        && let (Some(used), Some(size)) = (usage.context_usage, usage.context_size)
+                    {
+                        let _ = dust_tx_clone.send(DustEvent::ContextUsage { used, size });
+                    }
+                });
+            }
         }
         DustEvent::Error(error) => app.push_system_message(&error),
         DustEvent::ConversationCreated(conversation_id) => {
@@ -174,6 +187,17 @@ fn handle_dust_message(
                 })
                 .collect();
             app.restore_conversation(conversation_id, role_messages, title.as_deref());
+            if let (Some(cid), Some(c)) = (app.conversation_id().map(ToString::to_string), client) {
+                let client_clone = c.clone();
+                let dust_tx_clone = dust_tx.clone();
+                tokio::spawn(async move {
+                    if let Ok(Some(usage)) = client_clone.fetch_context_usage(&cid).await
+                        && let (Some(used), Some(size)) = (usage.context_usage, usage.context_size)
+                    {
+                        let _ = dust_tx_clone.send(DustEvent::ContextUsage { used, size });
+                    }
+                });
+            }
         }
         DustEvent::ToolUse(tool_call) => {
             handle_tool_use_event(tool_call, app, client, mcp_manager, dust_tx);
@@ -208,6 +232,9 @@ fn handle_dust_message(
             call_id, success, ..
         } => {
             app.complete_subagent(&call_id, success);
+        }
+        DustEvent::ContextUsage { used, size } => {
+            app.set_context_usage(used, size);
         }
         _ => {}
     }
@@ -533,7 +560,8 @@ fn handle_agent_picker_key_event(
             if let Some(agent) = filtered.get(selected) {
                 let agent_id = agent.s_id.clone();
                 let agent_name = agent.name.clone();
-                app.switch_agent(&agent_id, &agent_name);
+                let context_size = agent.context_size();
+                app.switch_agent(&agent_id, &agent_name, context_size);
                 if let Some(c) = client.as_mut() {
                     c.set_agent(&agent_id);
                 }
@@ -844,6 +872,9 @@ async fn run_tui_main_loop(
 
     // Set event_tx on MCP manager for SubagentStarted/Finished events
     mcp_manager.lock().await.set_event_tx(dust_tx.clone());
+
+    // Fetch agents at startup to seed context_size for the default agent
+    handle_agent_picker_selection(client.clone(), agent_tx.clone());
 
     // Spawn MCP transport: registers oxide-fs with Dust and receives tool calls via SSE
     let (mcp_server_id_tx, mut mcp_server_id_rx) = mpsc::unbounded_channel::<String>();

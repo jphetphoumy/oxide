@@ -7,9 +7,10 @@ use tracing::{debug, error, trace};
 use crate::auth::{token_refresh, token_storage};
 use crate::dust::stream::EventStream;
 use crate::dust::types::{
-    AgentInfo, Conversation, ConversationMessage, ConversationSummary, CreateConversationRequest,
-    CreateConversationResponse, ListAgentsResponse, ListConversationsResponse, Mention,
-    MessageBody, MessageContext, PostMessageResponse, StreamEvent,
+    AgentInfo, ContextUsageResponse, Conversation, ConversationMessage, ConversationSummary,
+    CreateConversationRequest, CreateConversationResponse, ListAgentsResponse,
+    ListConversationsResponse, Mention, MessageBody, MessageContext, PostMessageResponse,
+    StreamEvent,
 };
 
 pub const DUST_CLI_USER_AGENT: &str = "Dust CLI";
@@ -73,6 +74,11 @@ pub enum DustEvent {
     SubagentFinished {
         call_id: String,
         success: bool,
+    },
+    /// Context usage for conversation
+    ContextUsage {
+        used: u32,
+        size: u32,
     },
 }
 
@@ -216,6 +222,36 @@ impl DustClient {
                 .cmp(&a.updated.unwrap_or(a.created))
         });
         Ok(conversations)
+    }
+
+    pub async fn fetch_context_usage(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Option<ContextUsageResponse>> {
+        let token = token_refresh::get_valid_token().await?;
+        let url = self.url(&format!(
+            "/api/w/{}/assistant/conversations/{conversation_id}/context-usage",
+            self.workspace_id
+        ));
+        let response = self
+            .http
+            .get(&url)
+            .bearer_auth(token)
+            .send()
+            .await
+            .context("failed to fetch context usage")?;
+
+        if !response.status().is_success() {
+            // Non-critical: silently return None on failure
+            return Ok(None);
+        }
+
+        let body: ContextUsageResponse = response
+            .json()
+            .await
+            .context("failed to decode context usage response")?;
+
+        Ok(Some(body))
     }
 
     #[allow(dead_code)]

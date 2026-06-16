@@ -106,6 +106,8 @@ pub struct App {
     active_skills: Vec<crate::skills::Skill>,
     subagent_count: usize,
     tick: u64,
+    context_usage: Option<(u32, u32)>,
+    context_size: Option<u32>,
 }
 
 impl App {
@@ -128,6 +130,8 @@ impl App {
             active_skills: Vec::new(),
             subagent_count: 0,
             tick: 0,
+            context_usage: None,
+            context_size: None,
         }
     }
 
@@ -333,6 +337,11 @@ impl App {
     }
 
     pub fn set_picker_agents(&mut self, agents: Vec<AgentInfo>) {
+        if self.context_size.is_none()
+            && let Some(agent) = agents.iter().find(|a| a.s_id == self.agent_id)
+        {
+            self.context_size = agent.context_size();
+        }
         if let AppMode::Picker(state) = &mut self.mode {
             state.agents = agents;
             state.loading = false;
@@ -402,9 +411,11 @@ impl App {
         }
     }
 
-    pub fn switch_agent(&mut self, agent_id: &str, agent_name: &str) {
+    pub fn switch_agent(&mut self, agent_id: &str, agent_name: &str, context_size: Option<u32>) {
         self.agent_id = agent_id.to_string();
         self.agent_name = agent_name.to_string();
+        self.context_size = context_size;
+        self.context_usage = None;
         self.push_system_message(&format!("Switched to {agent_name}"));
         self.mode = AppMode::Chat;
     }
@@ -496,6 +507,8 @@ impl App {
         self.is_streaming = false;
         self.streaming_started_at = None;
         self.scroll_offset = 0;
+        // context_size is preserved — the agent hasn't changed
+        self.context_usage = None;
         self.mode = AppMode::Chat;
         let title_str = title.unwrap_or("(untitled)");
         self.push_system_message(&format!("Resumed conversation: {title_str}"));
@@ -507,6 +520,8 @@ impl App {
         self.conversation_id = None;
         self.scroll_offset = 0;
         self.clear_active_skills();
+        // context_size is preserved — the agent hasn't changed
+        self.context_usage = None;
         self.push_system_message(&format!(
             "Started a new conversation with {}",
             self.agent_name
@@ -581,6 +596,43 @@ impl App {
 
     pub fn clear_active_skills(&mut self) {
         self.active_skills.clear();
+    }
+
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn set_context_usage(&mut self, used: u32, size: u32) {
+        if size > 0 {
+            self.context_usage = Some((used, size));
+            self.context_size = Some(size);
+        }
+    }
+
+    pub fn context_usage_percent(&self) -> Option<u8> {
+        self.context_usage.map(|(used, size)| {
+            let percent = (f64::from(used) / f64::from(size)) * 100.0;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            {
+                percent.round().min(100.0) as u8
+            }
+        })
+    }
+
+    pub fn context_usage_display(&self) -> String {
+        let size = self.context_usage.map(|(_, s)| s).or(self.context_size);
+        match (self.context_usage_percent(), size) {
+            (Some(pct), Some(s)) => format!(" ctx:{pct}%/{}", format_context_size(s)),
+            (None, Some(s)) => format!(" ctx:0%/{}", format_context_size(s)),
+            _ => " ctx:--".to_string(),
+        }
+    }
+}
+
+fn format_context_size(tokens: u32) -> String {
+    if tokens >= 1_000_000 {
+        format!("{}M", tokens / 1_000_000)
+    } else if tokens >= 1_000 {
+        format!("{}K", tokens / 1_000)
+    } else {
+        tokens.to_string()
     }
 }
 
@@ -768,12 +820,14 @@ mod tests {
                 name: "dust".into(),
                 description: "General".into(),
                 scope: "workspace".into(),
+                model: None,
             },
             AgentInfo {
                 s_id: "a2".into(),
                 name: "helper".into(),
                 description: "Code".into(),
                 scope: "published".into(),
+                model: None,
             },
         ];
         app.set_picker_agents(agents);
@@ -795,12 +849,14 @@ mod tests {
                 name: "dust".into(),
                 description: "".into(),
                 scope: "".into(),
+                model: None,
             },
             AgentInfo {
                 s_id: "a2".into(),
                 name: "helper".into(),
                 description: "".into(),
                 scope: "".into(),
+                model: None,
             },
         ]);
         app.set_picker_filter("hel");
@@ -818,6 +874,7 @@ mod tests {
             name: "Dust".into(),
             description: "".into(),
             scope: "".into(),
+            model: None,
         }]);
         app.set_picker_filter("dust");
         assert_eq!(app.picker_filtered_agents().len(), 1);
@@ -833,12 +890,14 @@ mod tests {
                 name: "one".into(),
                 description: "".into(),
                 scope: "".into(),
+                model: None,
             },
             AgentInfo {
                 s_id: "a2".into(),
                 name: "two".into(),
                 description: "".into(),
                 scope: "".into(),
+                model: None,
             },
         ]);
         app.picker_move_selection(1);
@@ -857,12 +916,14 @@ mod tests {
                 name: "one".into(),
                 description: "".into(),
                 scope: "".into(),
+                model: None,
             },
             AgentInfo {
                 s_id: "a2".into(),
                 name: "two".into(),
                 description: "".into(),
                 scope: "".into(),
+                model: None,
             },
         ]);
         app.picker_move_selection(-1); // wraps to last
@@ -872,7 +933,7 @@ mod tests {
     #[test]
     fn switch_agent_updates_name_and_pushes_system_message() {
         let mut app = App::new("old-agent", "/workspace", None);
-        app.switch_agent("new-id", "new-agent");
+        app.switch_agent("new-id", "new-agent", None);
         assert_eq!(app.agent_name(), "new-agent");
         assert_eq!(app.messages().len(), 1);
         assert_eq!(app.messages()[0].role, Role::System);
@@ -1361,14 +1422,14 @@ mod tests {
     #[test]
     fn switch_agent_updates_agent_id() {
         let mut app = App::new("old-agent-id", "/workspace", None);
-        app.switch_agent("new-agent-id", "new-agent-name");
+        app.switch_agent("new-agent-id", "new-agent-name", None);
         assert_eq!(app.agent_id(), "new-agent-id");
     }
 
     #[test]
     fn switch_agent_updates_both_id_and_name() {
         let mut app = App::new("initial-id", "/workspace", None);
-        app.switch_agent("updated-id", "updated-name");
+        app.switch_agent("updated-id", "updated-name", None);
         assert_eq!(app.agent_id(), "updated-id");
         assert_eq!(app.agent_name(), "updated-name");
     }
@@ -1381,18 +1442,21 @@ mod tests {
                 name: "hello".to_string(),
                 description: "desc1".to_string(),
                 scope: String::new(),
+                model: None,
             },
             AgentInfo {
                 s_id: "agent-2".to_string(),
                 name: "world".to_string(),
                 description: "desc2".to_string(),
                 scope: String::new(),
+                model: None,
             },
             AgentInfo {
                 s_id: "agent-3".to_string(),
                 name: "helper".to_string(),
                 description: "desc3".to_string(),
                 scope: String::new(),
+                model: None,
             },
         ];
         let mut app = App::new("agent-id", "/workspace", None);
@@ -1414,12 +1478,14 @@ mod tests {
                 name: "Main Agent".to_string(),
                 description: "".to_string(),
                 scope: "".to_string(),
+                model: None,
             },
             AgentInfo {
                 s_id: "a2".to_string(),
                 name: "Helper".to_string(),
                 description: "".to_string(),
                 scope: "".to_string(),
+                model: None,
             },
         ];
         let mut app = App::new("main-agent-id", "/workspace", None);
@@ -1429,8 +1495,105 @@ mod tests {
         let filtered = app.picker_filtered_agents();
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].s_id, "a2");
-        app.switch_agent("a2", "Helper");
+        app.switch_agent("a2", "Helper", None);
         assert_eq!(app.agent_id(), "a2");
         assert_eq!(app.agent_name(), "Helper");
+    }
+
+    #[test]
+    fn set_context_usage_stores_value() {
+        let mut app = App::new("a", "/workspace", None);
+        app.set_context_usage(42000, 100000);
+        assert_eq!(app.context_usage_percent(), Some(42));
+    }
+
+    #[test]
+    fn set_context_usage_zero_size_is_ignored() {
+        let mut app = App::new("a", "/workspace", None);
+        app.set_context_usage(100, 0);
+        assert_eq!(app.context_usage_percent(), None);
+    }
+
+    #[test]
+    fn new_conversation_clears_context_usage() {
+        let mut app = App::new("a", "/workspace", None);
+        app.set_context_usage(42000, 100000);
+        assert_eq!(app.context_usage_percent(), Some(42));
+        app.new_conversation();
+        assert_eq!(app.context_usage_percent(), None);
+    }
+
+    #[test]
+    fn restore_conversation_clears_context_usage() {
+        let mut app = App::new("a", "/workspace", None);
+        app.set_context_usage(42000, 100000);
+        assert_eq!(app.context_usage_percent(), Some(42));
+        app.restore_conversation("conv_123".to_string(), vec![], None);
+        assert_eq!(app.context_usage_percent(), None);
+    }
+
+    #[test]
+    fn context_usage_percent_rounds_correctly() {
+        let mut app = App::new("a", "/workspace", None);
+        app.set_context_usage(0, 100);
+        assert_eq!(app.context_usage_percent(), Some(0));
+        app.set_context_usage(69, 100);
+        assert_eq!(app.context_usage_percent(), Some(69));
+        app.set_context_usage(70, 100);
+        assert_eq!(app.context_usage_percent(), Some(70));
+        app.set_context_usage(79, 100);
+        assert_eq!(app.context_usage_percent(), Some(79));
+        app.set_context_usage(80, 100);
+        assert_eq!(app.context_usage_percent(), Some(80));
+        app.set_context_usage(100, 100);
+        assert_eq!(app.context_usage_percent(), Some(100));
+    }
+
+    #[test]
+    fn context_usage_display_no_data() {
+        let app = App::new("a", "/workspace", None);
+        assert_eq!(app.context_usage_display(), " ctx:--");
+    }
+
+    #[test]
+    fn context_usage_display_size_known_no_usage() {
+        let mut app = App::new("a", "/workspace", None);
+        app.context_size = Some(200_000);
+        assert_eq!(app.context_usage_display(), " ctx:0%/200K");
+    }
+
+    #[test]
+    fn context_usage_display_both_known() {
+        let mut app = App::new("a", "/workspace", None);
+        app.set_context_usage(100_000, 200_000);
+        assert_eq!(app.context_usage_display(), " ctx:50%/200K");
+    }
+
+    #[test]
+    fn format_context_size_plain_number() {
+        assert_eq!(format_context_size(999), "999");
+    }
+
+    #[test]
+    fn format_context_size_with_k_suffix() {
+        assert_eq!(format_context_size(1_000), "1K");
+        assert_eq!(format_context_size(200_000), "200K");
+        assert_eq!(format_context_size(999_999), "999K");
+    }
+
+    #[test]
+    fn format_context_size_with_m_suffix() {
+        assert_eq!(format_context_size(1_000_000), "1M");
+        assert_eq!(format_context_size(5_000_000), "5M");
+    }
+
+    #[test]
+    fn switch_agent_with_context_size() {
+        let mut app = App::new("old-agent", "/workspace", None);
+        app.set_context_usage(50_000, 100_000);
+        assert_eq!(app.context_usage_percent(), Some(50));
+        app.switch_agent("new-agent-id", "new-agent", Some(200_000));
+        assert_eq!(app.context_usage_percent(), None);
+        assert_eq!(app.context_usage_display(), " ctx:0%/200K");
     }
 }

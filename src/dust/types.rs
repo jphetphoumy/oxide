@@ -170,6 +170,12 @@ impl StreamEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AgentModelInfo {
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct AgentInfo {
     #[serde(rename = "sId")]
     pub s_id: String,
@@ -178,12 +184,89 @@ pub struct AgentInfo {
     pub description: String,
     #[serde(default)]
     pub scope: String,
+    #[serde(default)]
+    pub model: Option<AgentModelInfo>,
+}
+
+impl AgentInfo {
+    pub fn context_size(&self) -> Option<u32> {
+        self.model
+            .as_ref()
+            .and_then(|m| context_size_for_model(&m.model_id))
+    }
+}
+
+/// Static context window sizes sourced from Dust model configurations.
+pub fn context_size_for_model(model_id: &str) -> Option<u32> {
+    match model_id {
+        // Anthropic — 180K
+        "claude-3-opus-20240229"
+        | "claude-3-5-sonnet-20240620"
+        | "claude-3-5-sonnet-20241022"
+        | "claude-3-haiku-20240307"
+        | "claude-3-5-haiku-20241022"
+        | "claude-haiku-4-5-20251001" => Some(180_000),
+        // Anthropic — 200K, OpenAI reasoning 200K
+        "claude-4-opus-20250514"
+        | "claude-4-sonnet-20250514"
+        | "claude-sonnet-4-5-20250929"
+        | "claude-3-7-sonnet-20250219"
+        | "claude-opus-4-5-20251101"
+        | "o1"
+        | "o3"
+        | "o3-mini"
+        | "o4-mini" => Some(200_000),
+        // Anthropic — 250K
+        "claude-opus-4-6" | "claude-opus-4-7" | "claude-opus-4-8" | "claude-fable-5"
+        | "claude-sonnet-4-6" => Some(250_000),
+        // OpenAI
+        "gpt-3.5-turbo" => Some(16_384),
+        "gpt-4-turbo"
+        | "gpt-4o"
+        | "gpt-4o-2024-08-06"
+        | "gpt-4o-mini"
+        | "o1-mini"
+        | "codestral-latest"
+        | "accounts/fireworks/models/kimi-k2-instruct-0905"
+        | "mistral-small-latest"
+        | "mistral-medium" => Some(128_000),
+        "gpt-5" | "gpt-5.1" | "gpt-5.2" | "gpt-5.4-mini" | "gpt-5.4-nano" | "gpt-5-mini"
+        | "gpt-5-nano" => Some(400_000),
+        "gpt-4.1-2025-04-14"
+        | "gpt-4.1-mini-2025-04-14"
+        | "gpt-5.4"
+        | "gpt-5.5"
+        | "gemini-2.5-flash"
+        | "gemini-2.5-flash-lite"
+        | "gemini-2.5-pro"
+        | "gemini-3-pro-preview"
+        | "gemini-3.1-pro-preview"
+        | "gemini-3.1-flash-lite"
+        | "gemini-3-flash-preview"
+        | "gemini-3.5-flash"
+        | "accounts/fireworks/models/deepseek-v4-pro" => Some(1_000_000),
+        // Mistral
+        "mistral-large-latest" | "mistral-medium-3-5" => Some(256_000),
+        // Fireworks
+        "accounts/fireworks/models/deepseek-v3p2" => Some(163_800),
+        "accounts/fireworks/models/kimi-k2p5" => Some(262_100),
+        "accounts/fireworks/models/minimax-m2p5" => Some(196_608),
+        "accounts/fireworks/models/glm-5" => Some(202_752),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListAgentsResponse {
     pub agent_configurations: Vec<AgentInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextUsageResponse {
+    pub context_usage: Option<u32>,
+    pub context_size: Option<u32>,
 }
 
 #[cfg(test)]
@@ -449,5 +532,42 @@ mod tests {
 
         let tool_call = StreamEvent::extract_tool_use_from_action(&action);
         assert!(tool_call.is_none());
+    }
+
+    #[test]
+    fn context_usage_response_deserializes() {
+        let json = r#"{
+            "contextUsage": 12345,
+            "contextSize": 200000
+        }"#;
+
+        let response = serde_json::from_str::<ContextUsageResponse>(json).expect("deserialize");
+        assert_eq!(response.context_usage, Some(12345));
+        assert_eq!(response.context_size, Some(200000));
+    }
+
+    #[test]
+    fn context_usage_response_handles_null_fields() {
+        let json = r#"{
+            "contextUsage": null,
+            "contextSize": null
+        }"#;
+
+        let response = serde_json::from_str::<ContextUsageResponse>(json).expect("deserialize");
+        assert_eq!(response.context_usage, None);
+        assert_eq!(response.context_size, None);
+    }
+
+    #[test]
+    fn context_usage_response_ignores_model_field() {
+        let json = r#"{
+            "contextUsage": 5000,
+            "contextSize": 100000,
+            "model": {"providerId": "anthropic", "modelId": "claude-3-7-sonnet"}
+        }"#;
+
+        let response = serde_json::from_str::<ContextUsageResponse>(json).expect("deserialize");
+        assert_eq!(response.context_usage, Some(5000));
+        assert_eq!(response.context_size, Some(100000));
     }
 }
