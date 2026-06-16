@@ -228,7 +228,8 @@ pub fn context_size_for_model(model_id: &str) -> Option<u32> {
         | "o1-mini"
         | "codestral-latest"
         | "accounts/fireworks/models/kimi-k2-instruct-0905"
-        | "mistral-small-latest" => Some(128_000),
+        | "mistral-small-latest"
+        | "mistral-medium" => Some(128_000),
         "gpt-5" | "gpt-5.1" | "gpt-5.2" | "gpt-5.4-mini" | "gpt-5.4-nano" | "gpt-5-mini"
         | "gpt-5-nano" => Some(400_000),
         "gpt-4.1-2025-04-14"
@@ -245,7 +246,7 @@ pub fn context_size_for_model(model_id: &str) -> Option<u32> {
         | "gemini-3.5-flash"
         | "accounts/fireworks/models/deepseek-v4-pro" => Some(1_000_000),
         // Mistral
-        "mistral-medium" | "mistral-large-latest" | "mistral-medium-3-5" => Some(256_000),
+        "mistral-large-latest" | "mistral-medium-3-5" => Some(256_000),
         // Fireworks
         "accounts/fireworks/models/deepseek-v3p2" => Some(163_800),
         "accounts/fireworks/models/kimi-k2p5" => Some(262_100),
