@@ -303,6 +303,11 @@ impl App {
         }
     }
 
+    pub const fn cancel_stream(&mut self) {
+        self.is_streaming = false;
+        self.streaming_started_at = None;
+    }
+
     pub fn push_system_message(&mut self, content: &str) {
         self.messages.push(Message {
             role: Role::System,
