@@ -148,16 +148,12 @@ fn handle_dust_message(
             app.complete_stream(content.as_deref());
 
             // Fetch context usage asynchronously; result arrives via DustEvent::ContextUsage
-            if let (Some(cid), Some(c)) = (
-                app.conversation_id().map(ToString::to_string),
-                client,
-            ) {
+            if let (Some(cid), Some(c)) = (app.conversation_id().map(ToString::to_string), client) {
                 let client_clone = c.clone();
                 let dust_tx_clone = dust_tx.clone();
                 tokio::spawn(async move {
                     if let Ok(Some(usage)) = client_clone.fetch_context_usage(&cid).await
-                        && let (Some(used), Some(size)) =
-                            (usage.context_usage, usage.context_size)
+                        && let (Some(used), Some(size)) = (usage.context_usage, usage.context_size)
                     {
                         let _ = dust_tx_clone.send(DustEvent::ContextUsage { used, size });
                     }

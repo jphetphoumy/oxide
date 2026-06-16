@@ -7,7 +7,7 @@ use tracing::{debug, error, trace};
 use crate::auth::{token_refresh, token_storage};
 use crate::dust::stream::EventStream;
 use crate::dust::types::{
-    AgentInfo, Conversation, ConversationMessage, ConversationSummary, ContextUsageResponse,
+    AgentInfo, ContextUsageResponse, Conversation, ConversationMessage, ConversationSummary,
     CreateConversationRequest, CreateConversationResponse, ListAgentsResponse,
     ListConversationsResponse, Mention, MessageBody, MessageContext, PostMessageResponse,
     StreamEvent,

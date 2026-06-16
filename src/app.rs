@@ -603,6 +603,27 @@ impl App {
             }
         })
     }
+
+    pub fn context_usage_display(&self) -> String {
+        match self.context_usage {
+            None => " ctx:--".to_string(),
+            Some((_, size)) => {
+                let pct = self.context_usage_percent().unwrap_or(0);
+                let size_label = format_context_size(size);
+                format!(" ctx:{pct}%/{size_label}")
+            }
+        }
+    }
+}
+
+fn format_context_size(tokens: u32) -> String {
+    if tokens >= 1_000_000 {
+        format!("{}M", tokens / 1_000_000)
+    } else if tokens >= 1_000 {
+        format!("{}K", tokens / 1_000)
+    } else {
+        tokens.to_string()
+    }
 }
 
 #[cfg(test)]

@@ -465,8 +465,7 @@ mod tests {
             "contextSize": 200000
         }"#;
 
-        let response =
-            serde_json::from_str::<ContextUsageResponse>(json).expect("deserialize");
+        let response = serde_json::from_str::<ContextUsageResponse>(json).expect("deserialize");
         assert_eq!(response.context_usage, Some(12345));
         assert_eq!(response.context_size, Some(200000));
     }
@@ -478,8 +477,7 @@ mod tests {
             "contextSize": null
         }"#;
 
-        let response =
-            serde_json::from_str::<ContextUsageResponse>(json).expect("deserialize");
+        let response = serde_json::from_str::<ContextUsageResponse>(json).expect("deserialize");
         assert_eq!(response.context_usage, None);
         assert_eq!(response.context_size, None);
     }
@@ -492,8 +490,7 @@ mod tests {
             "model": {"providerId": "anthropic", "modelId": "claude-3-7-sonnet"}
         }"#;
 
-        let response =
-            serde_json::from_str::<ContextUsageResponse>(json).expect("deserialize");
+        let response = serde_json::from_str::<ContextUsageResponse>(json).expect("deserialize");
         assert_eq!(response.context_usage, Some(5000));
         assert_eq!(response.context_size, Some(100000));
     }

@@ -76,9 +76,9 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
         String::new()
     };
 
-    // Format context usage indicator
+    // Format context usage indicator (always shown)
     let ctx_pct = app.context_usage_percent();
-    let ctx_text = ctx_pct.map_or_else(String::new, |pct| format!(" ctx:{pct}%"));
+    let ctx_text = app.context_usage_display();
 
     let agent_text = format!(" agent: {}", app.agent_name());
     let cwd_room = usize::from(area.width).saturating_sub(
@@ -124,14 +124,12 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
             Style::default().fg(Color::Rgb(188, 140, 255)),
         ));
     }
-    if let Some(pct) = ctx_pct {
-        let ctx_color = match pct {
-            80.. => Color::Red,
-            70.. => Color::Yellow,
-            _ => Color::DarkGray,
-        };
-        spans.push(Span::styled(ctx_text, Style::default().fg(ctx_color)));
-    }
+    let ctx_color = match ctx_pct {
+        Some(80..) => Color::Red,
+        Some(70..) => Color::Yellow,
+        _ => Color::DarkGray,
+    };
+    spans.push(Span::styled(ctx_text, Style::default().fg(ctx_color)));
     spans.push(Span::raw(" ".repeat(padding.into())));
     spans.push(Span::styled(hints, Style::default().fg(Color::DarkGray)));
     let status_line = Line::from(spans);
