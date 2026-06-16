@@ -102,6 +102,9 @@ pub struct App {
     streaming_started_at: Option<std::time::Instant>,
     mode: AppMode,
     auto_approve_tools: bool,
+    /// Tool names approved via `ToolApproveExecution` (Dust-side gate) awaiting the subsequent
+    /// MCP transport `tools/call`. Consumed by `consume_transport_pre_approval`.
+    pending_mcp_transport_approvals: std::collections::VecDeque<String>,
     skills: Vec<crate::skills::Skill>,
     active_skills: Vec<crate::skills::Skill>,
     subagent_count: usize,
@@ -126,6 +129,7 @@ impl App {
             streaming_started_at: None,
             mode: AppMode::Chat,
             auto_approve_tools: false,
+            pending_mcp_transport_approvals: std::collections::VecDeque::new(),
             skills: Vec::new(),
             active_skills: Vec::new(),
             subagent_count: 0,
@@ -553,6 +557,28 @@ impl App {
             mcp_approve: None,
             mcp_transport: true,
         });
+    }
+
+    /// Records that the user approved a Dust-side `ToolApproveExecution` for `tool_name`.
+    /// The next `McpToolUse` for the same tool will be auto-approved to avoid a double prompt.
+    pub fn mark_tool_transport_pre_approved(&mut self, tool_name: String) {
+        tracing::debug!(tool = %tool_name, "marking MCP transport call as pre-approved");
+        self.pending_mcp_transport_approvals.push_back(tool_name);
+    }
+
+    /// Returns `true` and consumes the pre-approval if one exists for `tool_name`.
+    pub fn consume_transport_pre_approval(&mut self, tool_name: &str) -> bool {
+        if let Some(pos) = self
+            .pending_mcp_transport_approvals
+            .iter()
+            .position(|n| n == tool_name)
+        {
+            self.pending_mcp_transport_approvals.remove(pos);
+            tracing::debug!(tool = %tool_name, "consuming MCP transport pre-approval (skipping duplicate gate)");
+            true
+        } else {
+            false
+        }
     }
 
     pub fn exit_tool_approval(&mut self) {
@@ -1256,6 +1282,48 @@ mod tests {
             AppMode::Chat => {}
             _ => panic!("Expected Chat mode"),
         }
+    }
+
+    #[test]
+    fn pre_approval_consumed_once_suppresses_duplicate_gate() {
+        let mut app = App::new("test-agent", "/workspace", None);
+
+        // No pre-approval recorded yet → not consumed.
+        assert!(!app.consume_transport_pre_approval("bash"));
+
+        // Record a Dust-side approval for "bash".
+        app.mark_tool_transport_pre_approved("bash".to_string());
+
+        // First consumption returns true (suppresses duplicate gate).
+        assert!(app.consume_transport_pre_approval("bash"));
+
+        // Second consumption returns false (entry was removed).
+        assert!(!app.consume_transport_pre_approval("bash"));
+    }
+
+    #[test]
+    fn pre_approval_is_tool_name_scoped() {
+        let mut app = App::new("test-agent", "/workspace", None);
+
+        app.mark_tool_transport_pre_approved("bash".to_string());
+
+        // A different tool name does not consume the bash pre-approval.
+        assert!(!app.consume_transport_pre_approval("list_files"));
+
+        // The bash entry is still intact.
+        assert!(app.consume_transport_pre_approval("bash"));
+    }
+
+    #[test]
+    fn multiple_pre_approvals_for_same_tool_require_multiple_consumptions() {
+        let mut app = App::new("test-agent", "/workspace", None);
+
+        app.mark_tool_transport_pre_approved("bash".to_string());
+        app.mark_tool_transport_pre_approved("bash".to_string());
+
+        assert!(app.consume_transport_pre_approval("bash"));
+        assert!(app.consume_transport_pre_approval("bash"));
+        assert!(!app.consume_transport_pre_approval("bash"));
     }
 
     #[test]

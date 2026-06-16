@@ -298,8 +298,10 @@ fn handle_mcp_tool_use_event(
     mcp_manager: &Arc<tokio::sync::Mutex<McpManager>>,
     dust_tx: &tokio::sync::mpsc::UnboundedSender<DustEvent>,
 ) {
+    tracing::debug!(tool = %tool_call.name, id = %tool_call.id, "McpToolUse event received");
     let is_safe_tool = tool_call.name == SAFE_TOOL_NAME;
-    let should_auto_approve = app.auto_approve_tools() || is_safe_tool;
+    let pre_approved = app.consume_transport_pre_approval(&tool_call.name);
+    let should_auto_approve = app.auto_approve_tools() || is_safe_tool || pre_approved;
     if should_auto_approve {
         tracing::debug!(tool = %tool_call.name, "auto-approving MCP tool call");
         let tool_name = tool_call.name.clone();
@@ -338,6 +340,7 @@ fn handle_mcp_tool_use_event(
             }
         });
     } else {
+        tracing::debug!(tool = %tool_call.name, "showing McpToolUse gate to user (no pre-approval found)");
         // MCP external tools require approval - mark as MCP transport so we use post_mcp_result
         app.enter_mcp_transport_tool_approval(tool_call.clone());
     }
@@ -383,6 +386,7 @@ fn handle_tool_approve_execution_event(
             }
         });
     } else {
+        tracing::debug!(tool = %tool_name, action_id = %mcp_info.action_id, "showing ToolApproveExecution gate to user");
         app.enter_mcp_tool_approval(fake_call, mcp_info);
     }
 }
@@ -460,7 +464,10 @@ fn handle_approve_tool_action(
     let mcp = mcp_manager.clone();
     let dust_tx_inner = dust_tx.clone();
     if let Some(mcp_info) = state.mcp_approve {
-        // MCP flow: just approve via validate_action
+        // Dust-side gate: approve via validate_action, then record the tool name so the
+        // subsequent McpToolUse from the MCP transport does not show a second approval window.
+        app.mark_tool_transport_pre_approved(tool_call.name.clone());
+        tracing::debug!(tool = %tool_call.name, "user approved ToolApproveExecution; validate_action will be called");
         tokio::spawn(async move {
             if let Some(c) = dust_client
                 && let Err(e) = c
