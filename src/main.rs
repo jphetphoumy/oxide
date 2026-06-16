@@ -549,7 +549,8 @@ fn handle_agent_picker_key_event(
             if let Some(agent) = filtered.get(selected) {
                 let agent_id = agent.s_id.clone();
                 let agent_name = agent.name.clone();
-                app.switch_agent(&agent_id, &agent_name);
+                let context_size = agent.context_size();
+                app.switch_agent(&agent_id, &agent_name, context_size);
                 if let Some(c) = client.as_mut() {
                     c.set_agent(&agent_id);
                 }
