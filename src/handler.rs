@@ -21,6 +21,7 @@ pub enum Action {
     ScrollDown(usize),
     ApproveTool,
     DenyTool,
+    CancelStream,
     None,
 }
 
@@ -42,6 +43,7 @@ pub fn handle_key_event(key: KeyEvent) -> Action {
         (KeyCode::End, _) => Action::MoveEnd,
         (KeyCode::PageUp, _) => Action::ScrollUp(SCROLL_LINES),
         (KeyCode::PageDown, _) => Action::ScrollDown(SCROLL_LINES),
+        (KeyCode::Esc, _) => Action::CancelStream,
         (KeyCode::Char(c), _) => Action::InsertChar(c),
         _ => Action::None,
     }
@@ -138,7 +140,7 @@ pub fn apply_action(app: &mut App, input: &mut InputBuffer, action: Action) -> A
         Action::MoveEnd => input.move_end(),
         Action::ScrollUp(n) => app.scroll_up(n),
         Action::ScrollDown(n) => app.scroll_down(n),
-        Action::ApproveTool | Action::DenyTool | Action::None => {}
+        Action::ApproveTool | Action::DenyTool | Action::CancelStream | Action::None => {}
     }
 
     outcome
@@ -299,8 +301,11 @@ mod tests {
     }
 
     #[test]
-    fn esc_produces_none() {
-        assert!(matches!(handle_key_event(key(KeyCode::Esc)), Action::None));
+    fn esc_produces_cancel_stream() {
+        assert!(matches!(
+            handle_key_event(key(KeyCode::Esc)),
+            Action::CancelStream
+        ));
     }
 
     #[test]

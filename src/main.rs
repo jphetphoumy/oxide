@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use clap::Parser;
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture, KeyCode};
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
@@ -138,12 +138,12 @@ fn handle_dust_message(
 ) {
     match message {
         DustEvent::Token(token, conv_id)
-            if conv_id == app.conversation_id().map(ToString::to_string) =>
+            if conv_id == app.conversation_id().map(ToString::to_string) && app.is_streaming() =>
         {
             app.append_agent_token(&token);
         }
         DustEvent::Complete(content, conv_id)
-            if conv_id == app.conversation_id().map(ToString::to_string) =>
+            if conv_id == app.conversation_id().map(ToString::to_string) && app.is_streaming() =>
         {
             app.complete_stream(content.as_deref());
 
@@ -400,12 +400,14 @@ fn drain_pending_dust_events(
     while let Ok(message) = dust_rx.try_recv() {
         match message {
             DustEvent::Token(token, conv_id)
-                if conv_id == app.conversation_id().map(ToString::to_string) =>
+                if conv_id == app.conversation_id().map(ToString::to_string)
+                    && app.is_streaming() =>
             {
                 app.append_agent_token(&token);
             }
             DustEvent::Complete(content, conv_id)
-                if conv_id == app.conversation_id().map(ToString::to_string) =>
+                if conv_id == app.conversation_id().map(ToString::to_string)
+                    && app.is_streaming() =>
             {
                 app.complete_stream(content.as_deref());
             }
@@ -809,32 +811,31 @@ fn handle_pending_message_submit(
     client: Option<DustClient>,
     app: &App,
     dust_tx: &tokio::sync::mpsc::UnboundedSender<DustEvent>,
-) {
-    if let Some(content) = pending_submit {
-        if let Some(client) = client {
-            let conversation_id = app.conversation_id().map(ToOwned::to_owned);
-            let active_skills = app.active_skills().to_vec();
-            let dust_tx_inner = dust_tx.clone();
-            tokio::spawn(async move {
-                if let Err(error) = client
-                    .send_message_flow_with_skills(
-                        conversation_id,
-                        content,
-                        dust_tx_inner.clone(),
-                        &active_skills,
-                    )
-                    .await
-                {
-                    let _ = dust_tx_inner.send(DustEvent::Error(error.to_string()));
-                }
-            });
-        } else {
-            let _ = dust_tx.send(DustEvent::Error(
-                "Dust client could not be initialised. Try running `oxide login` again."
-                    .to_string(),
-            ));
-        }
+) -> Option<tokio::task::JoinHandle<()>> {
+    let content = pending_submit?;
+    if let Some(client) = client {
+        let conversation_id = app.conversation_id().map(ToOwned::to_owned);
+        let active_skills = app.active_skills().to_vec();
+        let dust_tx_inner = dust_tx.clone();
+        let handle = tokio::spawn(async move {
+            if let Err(error) = client
+                .send_message_flow_with_skills(
+                    conversation_id,
+                    content,
+                    dust_tx_inner.clone(),
+                    &active_skills,
+                )
+                .await
+            {
+                let _ = dust_tx_inner.send(DustEvent::Error(error.to_string()));
+            }
+        });
+        return Some(handle);
     }
+    let _ = dust_tx.send(DustEvent::Error(
+        "Dust client could not be initialised. Try running `oxide login` again.".to_string(),
+    ));
+    None
 }
 
 async fn setup_tui_initialization() -> io::Result<(
@@ -866,6 +867,7 @@ async fn setup_tui_initialization() -> io::Result<(
     Ok((config, skills, client, mcp_manager, app))
 }
 
+#[allow(clippy::too_many_lines)]
 async fn run_tui_main_loop(
     mut terminal: Terminal<CrosstermBackend<io::Stdout>>,
     mut client: Option<DustClient>,
@@ -878,6 +880,7 @@ async fn run_tui_main_loop(
     let (dust_tx, mut dust_rx) = mpsc::unbounded_channel::<DustEvent>();
     let (agent_tx, mut agent_rx) = mpsc::unbounded_channel::<Vec<AgentInfo>>();
     let mut pending_submit: Option<String> = None;
+    let mut streaming_handle: Option<tokio::task::JoinHandle<()>> = None;
 
     // Set event_tx on MCP manager for SubagentStarted/Finished events
     mcp_manager.lock().await.set_event_tx(dust_tx.clone());
@@ -933,7 +936,12 @@ async fn run_tui_main_loop(
                                 }
                             }
                             AppMode::Chat => {
-                                if let Some(content) = handle_chat_mode_key_event(key, &mut app, &mut input, client.as_ref(), &agent_tx, &dust_tx) {
+                                if key.code == KeyCode::Esc && app.is_streaming() {
+                                    if let Some(handle) = streaming_handle.take() {
+                                        handle.abort();
+                                    }
+                                    app.cancel_stream();
+                                } else if let Some(content) = handle_chat_mode_key_event(key, &mut app, &mut input, client.as_ref(), &agent_tx, &dust_tx) {
                                     pending_submit = Some(content);
                                 }
                             }
@@ -954,6 +962,9 @@ async fn run_tui_main_loop(
             message = dust_rx.recv() => {
                 if let Some(message) = message {
                     handle_dust_message(message, &mut app, client.as_ref(), &mcp_manager, &dust_tx);
+                    if !app.is_streaming() {
+                        streaming_handle = None;
+                    }
                 } else {
                     break;
                 }
@@ -967,7 +978,11 @@ async fn run_tui_main_loop(
 
         drain_pending_dust_events(&mut dust_rx, &mut app);
 
-        handle_pending_message_submit(pending_submit.take(), client.clone(), &app, &dust_tx);
+        if let Some(handle) =
+            handle_pending_message_submit(pending_submit.take(), client.clone(), &app, &dust_tx)
+        {
+            streaming_handle = Some(handle);
+        }
 
         if app.should_quit() {
             break;

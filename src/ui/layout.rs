@@ -54,7 +54,11 @@ pub fn render_layout(frame: &mut Frame, app: &App, input_h: u16) -> AppLayout {
     )]));
     frame.render_widget(title, chunks[0]);
 
-    let hints = "Ctrl+C quit  Enter send  Alt+Enter newline";
+    let hints = if app.is_streaming() {
+        "Ctrl+C quit  Esc cancel"
+    } else {
+        "Ctrl+C quit  Enter send  Alt+Enter newline"
+    };
 
     // Format active skills indicator
     let skills_text = if app.active_skills().is_empty() {
