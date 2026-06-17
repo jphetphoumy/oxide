@@ -408,6 +408,14 @@ impl DustClient {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
+            // action_not_blocked means the MCP transport already executed this tool
+            // (dedup path ran before the user pressed approve). Treat as success.
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body)
+                && v["error"]["type"].as_str() == Some("action_not_blocked")
+            {
+                debug!(action_id = %action_id, "action already unblocked, treating as success");
+                return Ok(());
+            }
             anyhow::bail!("validate-action failed: HTTP {status} — {body}");
         }
         Ok(())
