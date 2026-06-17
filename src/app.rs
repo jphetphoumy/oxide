@@ -644,6 +644,14 @@ impl App {
 
     pub fn push_tool_call(&mut self, tool_call: ToolCall) -> String {
         let call_id = tool_call.id.clone();
+        // Deduplicate: SSE resume can re-emit the same tool call event
+        let already_exists = self
+            .messages
+            .iter()
+            .any(|m| matches!(&m.role, Role::ToolCall(e) if e.call_id == call_id));
+        if already_exists {
+            return call_id;
+        }
         self.messages.push(Message {
             role: Role::ToolCall(ToolCallEntry {
                 call_id: call_id.clone(),
@@ -1960,5 +1968,27 @@ mod tests {
         app.push_system_message("hello");
         assert!(app.send_message("user message"));
         assert_eq!(app.last_tool_call_id(), None);
+    }
+
+    #[test]
+    fn push_tool_call_deduplicates_same_id() {
+        let mut app = App::new("a", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "call-123".to_string(),
+            name: "oxide_bash".to_string(),
+            input: serde_json::json!({"command": "ls -al"}),
+        };
+        app.push_tool_call(tool_call.clone());
+        app.push_tool_call(tool_call);
+        let tool_calls: Vec<_> = app
+            .messages()
+            .iter()
+            .filter(|m| matches!(&m.role, Role::ToolCall(e) if e.call_id == "call-123"))
+            .collect();
+        assert_eq!(
+            tool_calls.len(),
+            1,
+            "duplicate tool call must not appear twice"
+        );
     }
 }
