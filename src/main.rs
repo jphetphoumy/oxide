@@ -560,6 +560,13 @@ fn handle_approve_tool_action(
                     result: format!("error: {e}"),
                     is_error: true,
                 });
+            } else {
+                // Manual approval succeeded, mark as done with empty result
+                let _ = dust_tx_inner.send(DustEvent::ToolCallResult {
+                    call_id: call_id_clone,
+                    result: String::new(),
+                    is_error: false,
+                });
             }
         });
     } else if state.mcp_transport {
