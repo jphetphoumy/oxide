@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     name: Checks (fmt · check · clippy · test)
@@ -43,6 +47,8 @@ jobs:
   build:
     name: Build (linux-x86_64)
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: check
     steps:
       - uses: actions/checkout@v4
 
