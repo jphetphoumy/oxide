@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: Checks (fmt · check · clippy · test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@v14
+
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: cargo fmt
+        run: nix develop --command cargo fmt --check
+
+      - name: cargo check
+        run: nix develop --command cargo check
+
+      - name: cargo clippy
+        run: nix develop --command cargo clippy -- -W clippy::all -W clippy::pedantic -W clippy::nursery
+
+      - name: cargo test
+        run: nix develop --command cargo test
+
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            use_nix: true
+            artifact: oxide
+
+          - name: macos-x86_64
+            os: macos-13
+            target: x86_64-apple-darwin
+            use_nix: true
+            artifact: oxide
+
+          - name: macos-aarch64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            use_nix: true
+            artifact: oxide
+
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            use_nix: false
+            artifact: oxide.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        if: matrix.use_nix
+        uses: DeterminateSystems/nix-installer-action@v14
+
+      - name: Enable Nix cache
+        if: matrix.use_nix
+        uses: DeterminateSystems/magic-nix-cache-action@v8
+
+      - name: Install Rust (Windows)
+        if: "!matrix.use_nix"
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install system deps (Windows)
+        if: "!matrix.use_nix"
+        run: |
+          choco install openssl --no-progress -y
+          echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >> $env:GITHUB_ENV
+          echo "OPENSSL_NO_PKG_CONFIG=1" >> $env:GITHUB_ENV
+
+      - name: Cache Cargo (non-Nix)
+        if: "!matrix.use_nix"
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build (Nix)
+        if: matrix.use_nix
+        run: nix develop --command cargo build --release --target ${{ matrix.target }}
+
+      - name: Build (non-Nix)
+        if: "!matrix.use_nix"
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oxide-${{ matrix.name }}
+          path: target/${{ matrix.target }}/release/${{ matrix.artifact }}
+          if-no-files-found: error
