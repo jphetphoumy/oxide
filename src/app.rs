@@ -669,8 +669,8 @@ impl App {
         call_id
     }
 
-    /// Returns the call_id of an existing non-failed/denied tool call with the same
-    /// name and input — used to detect ToolApproveExecution + McpToolUse duplicates.
+    /// Returns the `call_id` of an existing non-failed/denied tool call with the same
+    /// name and input — used to detect `ToolApproveExecution` + `McpToolUse` duplicates.
     pub fn find_active_tool_call_by_name_and_input(
         &self,
         tool_name: &str,
