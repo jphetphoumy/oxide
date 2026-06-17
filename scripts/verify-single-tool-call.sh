@@ -1,75 +1,103 @@
 #!/usr/bin/env bash
-# Deterministic check: sending "call ls -al" must produce exactly 1 oxide_bash(ls -al) tool call.
-# Requires: tmux, cargo build already done, valid Dust credentials.
-# Exit 0 = pass, Exit 1 = fail.
+# Verify that "Call ls -al" produces exactly 1 oxide_bash(ls -al) tool call entry.
+# Runs oxide, sends the prompt, approves each tool approval, then greps the final pane.
+# Exit 0 = exactly 1 occurrence. Exit 1 = 0 or 2+ occurrences (fail).
 set -euo pipefail
 
-SESSION="oxide-tool-call-verify"
-WAIT_STREAMING=30  # seconds to wait for agent to finish tool call
-PASS=0
+SESSION="oxide-verify-tool-dedup"
+BINARY="./target/debug/oxide"
+WAIT_APPROVAL_SEC=90   # max seconds to wait for first tool approval prompt to appear
+MAX_APPROVE_ROUNDS=5   # approve up to this many consecutive tool calls
+WAIT_DONE_SEC=60       # max seconds to wait for agent to finish after last approval
 
 cleanup() {
     tmux kill-session -t "$SESSION" 2>/dev/null || true
 }
 trap cleanup EXIT
 
-echo "[verify] building oxide..."
-cargo build --quiet 2>&1
+if [ ! -f "$BINARY" ]; then
+    echo "[verify] building oxide..."
+    nix develop --command cargo build --quiet
+fi
 
 echo "[verify] starting oxide in tmux..."
-tmux new-session -d -s "$SESSION" -x 220 -y 50 "./target/debug/oxide"
-
-echo "[verify] waiting for TUI to load..."
+tmux new-session -d -s "$SESSION" -x 220 -y 50 "$BINARY"
 sleep 3
 
 INITIAL=$(tmux capture-pane -t "$SESSION" -p)
-if ! echo "$INITIAL" | grep -q "oxide\|agent\|>"; then
-    echo "[FAIL] TUI did not start correctly"
+if ! echo "$INITIAL" | grep -qiE "oxide|agent|Type a message"; then
+    echo "[FAIL] TUI did not start:"
     echo "$INITIAL"
     exit 1
 fi
-echo "[verify] TUI loaded."
+echo "[verify] TUI loaded. Sending prompt..."
+tmux send-keys -t "$SESSION" "Call ls -al" Enter
 
-echo "[verify] sending prompt: 'call ls -al'"
-tmux send-keys -t "$SESSION" "call ls -al" Enter
-
-echo "[verify] waiting up to ${WAIT_STREAMING}s for tool call to appear..."
-FOUND=0
-for i in $(seq 1 "$WAIT_STREAMING"); do
+# Wait for the approval prompt — only match [y] approve, not user message text
+echo "[verify] waiting for tool approval prompt (up to ${WAIT_APPROVAL_SEC}s)..."
+APPROVAL_FOUND=0
+for i in $(seq 1 "$WAIT_APPROVAL_SEC"); do
     sleep 1
     PANE=$(tmux capture-pane -t "$SESSION" -p)
-    if echo "$PANE" | grep -q "oxide_bash\|ls -al\|ls"; then
-        FOUND=1
+    if echo "$PANE" | grep -q "\[y\] approve"; then
+        APPROVAL_FOUND=1
+        echo "[verify] approval prompt appeared after ${i}s"
         break
     fi
 done
 
-if [ "$FOUND" -eq 0 ]; then
-    echo "[FAIL] Tool call never appeared after ${WAIT_STREAMING}s"
+if [ "$APPROVAL_FOUND" -eq 0 ]; then
+    echo "[FAIL] No tool approval prompt appeared after ${WAIT_APPROVAL_SEC}s"
     tmux capture-pane -t "$SESSION" -p
     exit 1
 fi
 
-echo "[verify] tool call appeared, waiting for completion..."
-sleep 5
+# Approve tool calls one at a time as they appear
+APPROVED=0
+for round in $(seq 1 "$MAX_APPROVE_ROUNDS"); do
+    PANE=$(tmux capture-pane -t "$SESSION" -p)
+    if echo "$PANE" | grep -q "\[y\] approve"; then
+        echo "[verify] round $round: pressing y to approve..."
+        tmux send-keys -t "$SESSION" "y"
+        APPROVED=$((APPROVED + 1))
+        # Wait a moment for the approval to process and next state to render
+        sleep 5
+    else
+        echo "[verify] no more approval prompts after $APPROVED approval(s)."
+        break
+    fi
+done
+
+# Wait for agent to fully finish (no thinking spinner, no approval prompt)
+echo "[verify] waiting up to ${WAIT_DONE_SEC}s for agent to finish..."
+for i in $(seq 1 "$WAIT_DONE_SEC"); do
+    sleep 1
+    PANE=$(tmux capture-pane -t "$SESSION" -p)
+    if ! echo "$PANE" | grep -qE "\[y\] approve|↻ Thinking"; then
+        echo "[verify] agent finished after ${i}s"
+        break
+    fi
+done
+
+sleep 2
 FINAL=$(tmux capture-pane -t "$SESSION" -p)
 
-echo "--- pane output ---"
+echo "--- final pane ---"
 echo "$FINAL"
-echo "-------------------"
+echo "------------------"
 
-# Count lines containing oxide_bash or the tool call signature
-COUNT=$(echo "$FINAL" | grep -c "oxide_bash\|ls -al" || true)
+COUNT=$(echo "$FINAL" | grep -c "oxide_bash" || true)
 
-echo "[verify] found $COUNT line(s) matching tool call pattern"
+echo ""
+echo "[verify] oxide_bash occurrences in pane: $COUNT"
 
 if [ "$COUNT" -eq 1 ]; then
-    echo "[PASS] Exactly 1 tool call rendered — deduplication is working."
-    PASS=1
+    echo "[PASS] Exactly 1 oxide_bash(ls -al) — deduplication is working."
+    exit 0
 elif [ "$COUNT" -eq 0 ]; then
-    echo "[FAIL] No tool call found in pane output."
+    echo "[FAIL] oxide_bash not found in pane — tool call never rendered."
+    exit 1
 else
-    echo "[FAIL] $COUNT tool call lines found — duplicate detected!"
+    echo "[FAIL] $COUNT oxide_bash entries found — duplicate tool call bug is present."
+    exit 1
 fi
-
-[ "$PASS" -eq 1 ] && exit 0 || exit 1
