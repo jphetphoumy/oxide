@@ -75,7 +75,7 @@ pub fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
         }
     }
 
-    if app.is_streaming() {
+    if app.is_streaming() && !matches!(app.mode(), crate::app::AppMode::ToolApproval(_)) {
         lines.extend(streaming_indicator_lines(
             app.streaming_started_at(),
             app.tick_count(),
@@ -611,6 +611,44 @@ mod tests {
         assert!(
             !all.contains("Thinking..."),
             "indicator should not appear when not streaming: {all}"
+        );
+    }
+
+    #[test]
+    fn streaming_indicator_hidden_during_tool_approval() {
+        use crate::app::McpApproveInfo;
+        use crate::mcp::ToolCall;
+
+        let mut app = App::new("agent", "/workspace", None);
+        assert!(app.send_message("hello"));
+        let tool_call = ToolCall {
+            id: "t1".into(),
+            name: "Bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        let call_id = app.push_tool_call(tool_call.clone());
+        app.enter_mcp_tool_approval(
+            tool_call,
+            call_id,
+            McpApproveInfo {
+                action_id: "act1".into(),
+                conversation_id: "conv1".into(),
+                message_id: "msg1".into(),
+            },
+        );
+
+        // is_streaming is still true (stream is paused, not cancelled)
+        assert!(app.is_streaming());
+
+        let rows = render_messages_text(&app, 60, 10);
+        let all = rows.join("\n");
+        assert!(
+            !all.contains("Thinking..."),
+            "Thinking indicator must be hidden while waiting for tool approval: {all}"
+        );
+        assert!(
+            all.contains("[y] approve"),
+            "approval hint must still be visible: {all}"
         );
     }
 

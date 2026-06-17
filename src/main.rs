@@ -380,7 +380,6 @@ fn handle_mcp_tool_use_event(
         return;
     }
 
-
     let is_safe_tool = tool_call.name == SAFE_TOOL_NAME;
     let pre_approved = app.consume_transport_pre_approval(&tool_call.name);
     let should_auto_approve = app.auto_approve_tools() || is_safe_tool || pre_approved;
@@ -593,7 +592,10 @@ fn handle_approve_tool_action(
     let mcp = mcp_manager.clone();
     let dust_tx_inner = dust_tx.clone();
     if let Some(mcp_info) = state.mcp_approve {
-        // MCP flow: just approve via validate_action
+        // MCP flow: just approve via validate_action.
+        // Mark pre-approved synchronously so that the MCP transport tools/call that Dust
+        // delivers right after validate_action is auto-executed without a second prompt.
+        app.mark_tool_transport_pre_approved(tool_call.name);
         let call_id_clone = call_id.clone();
         tokio::spawn(async move {
             if let Some(c) = dust_client
