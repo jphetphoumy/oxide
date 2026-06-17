@@ -380,7 +380,6 @@ fn handle_mcp_tool_use_event(
         return;
     }
 
-
     let is_safe_tool = tool_call.name == SAFE_TOOL_NAME;
     let pre_approved = app.consume_transport_pre_approval(&tool_call.name);
     let should_auto_approve = app.auto_approve_tools() || is_safe_tool || pre_approved;

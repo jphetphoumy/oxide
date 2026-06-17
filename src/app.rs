@@ -601,6 +601,7 @@ impl App {
     /// The next `McpToolUse` for the same tool will be auto-approved to avoid a double prompt.
     /// Called synchronously before the `validate_action` spawn, so the entry is always present
     /// before Dust can deliver the subsequent `tools/call` over the MCP transport.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn mark_tool_transport_pre_approved(&mut self, tool_name: String) {
         tracing::debug!(tool = %tool_name, "marking MCP transport call as pre-approved");
         self.pending_mcp_transport_approvals.push_back(tool_name);
