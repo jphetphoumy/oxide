@@ -328,7 +328,59 @@ fn handle_mcp_tool_use_event(
     mcp_manager: &Arc<tokio::sync::Mutex<McpManager>>,
     dust_tx: &tokio::sync::mpsc::UnboundedSender<DustEvent>,
 ) {
-    tracing::debug!(tool = %tool_call.name, id = %tool_call.id, "McpToolUse event received");
+    // Detect duplicate: ToolApproveExecution already created a UI entry for this tool call.
+    // Dust sends tools/call via MCP transport AFTER validate_action, so we just execute
+    // and post the result without creating a new entry or showing a second approval prompt.
+    if let Some(existing_call_id) =
+        app.find_active_tool_call_by_name_and_input(&tool_call.name, &tool_call.input)
+    {
+        tracing::debug!(
+            tool = %tool_call.name,
+            existing_call_id = %existing_call_id,
+            "MCP tools/call is duplicate of already-shown ToolApproveExecution entry, executing silently"
+        );
+        let tool_name = tool_call.name.clone();
+        let input_json = tool_call.input.clone();
+        let tool_use_id = tool_call.id.clone(); // MCP request id for post_mcp_result
+        let dust_client = client.cloned();
+        let mcp = mcp_manager.clone();
+        let conversation_id = app.conversation_id().map(ToString::to_string);
+        let user_message_id = app.user_message_id().map(ToString::to_string);
+        let resume_tx = dust_tx.clone();
+        tokio::spawn(async move {
+            let (content, is_error) = match mcp.lock().await.call_tool(&tool_name, input_json).await
+            {
+                Ok(result) => (result.content, result.is_error),
+                Err(e) => {
+                    tracing::error!(tool = %tool_name, error = %e, "MCP tool execution failed (dedup path)");
+                    (format!("error: {e}"), true)
+                }
+            };
+            // Update the existing UI entry with the actual tool result
+            let _ = resume_tx.send(DustEvent::ToolCallResult {
+                call_id: existing_call_id,
+                result: content.clone(),
+                is_error,
+            });
+            if let Some(c) = dust_client {
+                if let Err(e) = c.post_mcp_result(&tool_use_id, &content, is_error).await {
+                    tracing::error!(error = %e, "failed to post MCP tool result (dedup path)");
+                    return;
+                }
+                if let (Some(conv_id), Some(user_msg_id)) =
+                    (conversation_id.as_deref(), user_message_id.as_deref())
+                    && let Err(e) = c
+                        .resume_message_stream(conv_id, user_msg_id, resume_tx.clone())
+                        .await
+                {
+                    tracing::error!(error = %e, "failed to resume stream after MCP tool (dedup path)");
+                }
+            }
+        });
+        return;
+    }
+
+
     let is_safe_tool = tool_call.name == SAFE_TOOL_NAME;
     let pre_approved = app.consume_transport_pre_approval(&tool_call.name);
     let should_auto_approve = app.auto_approve_tools() || is_safe_tool || pre_approved;

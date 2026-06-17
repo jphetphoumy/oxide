@@ -669,6 +669,26 @@ impl App {
         call_id
     }
 
+    /// Returns the call_id of an existing non-failed/denied tool call with the same
+    /// name and input — used to detect ToolApproveExecution + McpToolUse duplicates.
+    pub fn find_active_tool_call_by_name_and_input(
+        &self,
+        tool_name: &str,
+        input: &serde_json::Value,
+    ) -> Option<String> {
+        self.messages.iter().find_map(|m| {
+            if let Role::ToolCall(e) = &m.role
+                && e.tool_name == tool_name
+                && &e.input == input
+                && !matches!(e.status, ToolCallStatus::Failed | ToolCallStatus::Denied)
+            {
+                Some(e.call_id.clone())
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn set_tool_call_running(&mut self, call_id: &str) {
         for msg in self.messages.iter_mut().rev() {
             if let Role::ToolCall(entry) = &mut msg.role
@@ -1989,6 +2009,55 @@ mod tests {
             tool_calls.len(),
             1,
             "duplicate tool call must not appear twice"
+        );
+    }
+
+    #[test]
+    fn find_active_tool_call_returns_none_when_empty() {
+        let app = App::new("a", "/workspace", None);
+        assert_eq!(
+            app.find_active_tool_call_by_name_and_input(
+                "oxide_bash",
+                &serde_json::json!({"command": "ls -al"})
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn find_active_tool_call_matches_pending_entry() {
+        let mut app = App::new("a", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "act-abc".to_string(),
+            name: "oxide_bash".to_string(),
+            input: serde_json::json!({"command": "ls -al"}),
+        };
+        app.push_tool_call(tool_call);
+        assert_eq!(
+            app.find_active_tool_call_by_name_and_input(
+                "oxide_bash",
+                &serde_json::json!({"command": "ls -al"})
+            ),
+            Some("act-abc".to_string())
+        );
+    }
+
+    #[test]
+    fn find_active_tool_call_returns_none_after_failed() {
+        let mut app = App::new("a", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "act-abc".to_string(),
+            name: "oxide_bash".to_string(),
+            input: serde_json::json!({"command": "ls -al"}),
+        };
+        app.push_tool_call(tool_call);
+        app.fail_tool_call("act-abc", "some error".to_string());
+        assert_eq!(
+            app.find_active_tool_call_by_name_and_input(
+                "oxide_bash",
+                &serde_json::json!({"command": "ls -al"})
+            ),
+            None
         );
     }
 }
