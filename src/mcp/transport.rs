@@ -1,13 +1,15 @@
 use anyhow::{Context, Result};
 use std::sync::Arc;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, mpsc, watch};
 use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info, warn};
 
 use crate::mcp::{McpManager, ToolCall};
 
-const HEARTBEAT_INTERVAL: Duration = Duration::from_mins(15);
+const HEARTBEAT_INTERVAL: Duration = Duration::from_mins(2);
 const RECONNECT_DELAY: Duration = Duration::from_secs(5);
+const REGISTER_BACKOFF_MIN: Duration = Duration::from_secs(1);
+const REGISTER_BACKOFF_MAX: Duration = Duration::from_secs(30);
 
 #[derive(Debug, serde::Deserialize)]
 struct SseEnvelope {
@@ -51,28 +53,50 @@ impl McpTransport {
         info!(server_id = %server_id, "MCP server registered with Dust");
         let _ = self.server_id_tx.send(server_id.clone());
 
+        // Watch channel lets the heartbeat task always use the current server_id even after
+        // re-registration on reconnect.
+        let (sid_watch_tx, sid_watch_rx) = watch::channel(server_id.clone());
+
         // Spawn heartbeat task
         let http = self.http.clone();
         let base_url = self.base_url.clone();
         let workspace_id = self.workspace_id.clone();
-        let sid = server_id.clone();
         tokio::spawn(async move {
             loop {
                 sleep(HEARTBEAT_INTERVAL).await;
-                if let Err(e) = heartbeat(&http, &base_url, &workspace_id, &sid).await {
+                let current_sid = sid_watch_rx.borrow().clone();
+                if let Err(e) = heartbeat(&http, &base_url, &workspace_id, &current_sid).await {
                     warn!(error = %e, "MCP heartbeat failed");
                 }
             }
         });
 
-        // Main SSE loop — reconnects on disconnect
+        // Main SSE loop — re-registers on disconnect so we always hold a live server_id.
+        let mut current_server_id = server_id;
         let mut last_event_id: Option<String> = None;
+        let mut register_backoff = REGISTER_BACKOFF_MIN;
         loop {
-            match self.poll_loop(&server_id, &mut last_event_id).await {
+            match self.poll_loop(&current_server_id, &mut last_event_id).await {
                 Ok(()) => break,
                 Err(e) => {
-                    error!(error = %e, "MCP request stream error, reconnecting...");
+                    error!(error = %e, "MCP request stream error, re-registering...");
                     sleep(RECONNECT_DELAY).await;
+                    match self.register().await {
+                        Ok(new_id) => {
+                            info!(server_id = %new_id, "re-registered MCP server after disconnect");
+                            current_server_id.clone_from(&new_id);
+                            last_event_id = None;
+                            let _ = self.server_id_tx.send(new_id.clone());
+                            let _ = sid_watch_tx.send(new_id);
+                            register_backoff = REGISTER_BACKOFF_MIN;
+                        }
+                        Err(re) => {
+                            error!(error = %re, "failed to re-register MCP server, backing off {backoff_secs}s", backoff_secs = register_backoff.as_secs());
+                            sleep(register_backoff).await;
+                            register_backoff =
+                                std::cmp::min(register_backoff * 2, REGISTER_BACKOFF_MAX);
+                        }
+                    }
                 }
             }
         }
@@ -145,32 +169,42 @@ impl McpTransport {
         }
 
         let mut stream = crate::dust::stream::EventStream::new(response);
-        while let Some(raw) = stream.next_raw_line().await {
-            let line = raw.trim().to_string();
-            if line.is_empty() || !line.starts_with("data:") {
-                continue;
-            }
-            let data = line.trim_start_matches("data:").trim();
-            if data == "done" {
-                continue;
-            }
+        loop {
+            match stream.next_raw_line().await {
+                Ok(Some(raw)) => {
+                    let line = raw.trim().to_string();
+                    if line.is_empty() || !line.starts_with("data:") {
+                        continue;
+                    }
+                    let data = line.trim_start_matches("data:").trim();
+                    if data == "done" {
+                        continue;
+                    }
 
-            let envelope: SseEnvelope = match serde_json::from_str(data) {
-                Ok(e) => e,
-                Err(e) => {
-                    debug!(error = %e, raw = %data, "failed to parse MCP SSE event");
-                    continue;
+                    let envelope: SseEnvelope = match serde_json::from_str(data) {
+                        Ok(e) => e,
+                        Err(e) => {
+                            debug!(error = %e, raw = %data, "failed to parse MCP SSE event");
+                            continue;
+                        }
+                    };
+
+                    if let Some(eid) = envelope.event_id {
+                        *last_event_id = Some(eid);
+                    }
+
+                    if let Some(request) = envelope.data {
+                        debug!(request = %request, "received MCP request from Dust");
+                        if let Err(e) = self.handle_request(server_id, &request).await {
+                            error!(error = %e, "failed to handle MCP request");
+                        }
+                    }
                 }
-            };
-
-            if let Some(eid) = envelope.event_id {
-                *last_event_id = Some(eid);
-            }
-
-            if let Some(request) = envelope.data {
-                debug!(request = %request, "received MCP request from Dust");
-                if let Err(e) = self.handle_request(server_id, &request).await {
-                    error!(error = %e, "failed to handle MCP request");
+                Ok(None) => {
+                    break;
+                }
+                Err(e) => {
+                    return Err(e);
                 }
             }
         }

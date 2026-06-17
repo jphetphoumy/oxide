@@ -25,24 +25,24 @@ impl EventStream {
         }
     }
 
-    pub async fn next_raw_line(&mut self) -> Option<String> {
+    pub async fn next_raw_line(&mut self) -> Result<Option<String>> {
         loop {
             if let Some(pos) = self.buffer.find('\n') {
                 let line = self.buffer[..pos].to_string();
                 self.buffer.drain(..=pos);
-                return Some(line);
+                return Ok(Some(line));
             }
 
             match self.response.chunk().await {
                 Ok(Some(chunk)) => self.buffer.push_str(&String::from_utf8_lossy(&chunk)),
                 Ok(None) => {
                     if self.buffer.is_empty() {
-                        return None;
+                        return Ok(None);
                     }
                     let line = std::mem::take(&mut self.buffer);
-                    return Some(line);
+                    return Ok(Some(line));
                 }
-                Err(_) => return None,
+                Err(e) => return Err(e).context("failed to read from MCP response stream"),
             }
         }
     }
