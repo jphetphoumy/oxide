@@ -28,6 +28,27 @@ pub struct McpApproveInfo {
 }
 
 #[derive(Debug, Clone)]
+struct PendingMcpTransportOccurrence {
+    signature: ToolCall,
+    ui_call_id: Option<String>,
+    approval_call_id: Option<String>,
+    approval_approved: Option<bool>,
+    transport_call: Option<ToolCall>,
+}
+
+impl PendingMcpTransportOccurrence {
+    const fn new(signature: ToolCall) -> Self {
+        Self {
+            signature,
+            ui_call_id: None,
+            approval_call_id: None,
+            approval_approved: None,
+            transport_call: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ToolApprovalState {
     pub call_id: String,
     pub tool_call: ToolCall,
@@ -126,9 +147,8 @@ pub struct App {
     streaming_started_at: Option<std::time::Instant>,
     mode: AppMode,
     auto_approve_tools: bool,
-    /// Tool names approved via `ToolApproveExecution` (Dust-side gate) awaiting the subsequent
-    /// MCP transport `tools/call`. Consumed by `consume_transport_pre_approval`.
-    pending_mcp_transport_approvals: std::collections::VecDeque<String>,
+    /// Same-signature MCP approval/transport pairs tracked in FIFO order by occurrence.
+    pending_mcp_transport_occurrences: std::collections::VecDeque<PendingMcpTransportOccurrence>,
     /// Queue of tool approvals waiting to be shown when the current `ToolApproval` is dismissed.
     /// When the agent runs parallel tool calls, multiple `ToolApproveExecution` events arrive
     /// simultaneously. The first is shown immediately; extras are queued here.
@@ -157,7 +177,7 @@ impl App {
             streaming_started_at: None,
             mode: AppMode::Chat,
             auto_approve_tools: false,
-            pending_mcp_transport_approvals: std::collections::VecDeque::new(),
+            pending_mcp_transport_occurrences: std::collections::VecDeque::new(),
             pending_tool_approval_queue: std::collections::VecDeque::new(),
             skills: Vec::new(),
             active_skills: Vec::new(),
@@ -558,7 +578,7 @@ impl App {
         self.conversation_id = None;
         self.scroll_offset = 0;
         self.clear_active_skills();
-        self.pending_mcp_transport_approvals.clear();
+        self.pending_mcp_transport_occurrences.clear();
         self.pending_tool_approval_queue.clear();
         // context_size is preserved — the agent hasn't changed
         self.context_usage = None;
@@ -600,37 +620,250 @@ impl App {
         });
     }
 
-    pub fn enter_mcp_transport_tool_approval(&mut self, tool_call: ToolCall, call_id: String) {
-        self.queue_or_enter_tool_approval(ToolApprovalState {
-            call_id,
-            tool_call,
-            mcp_approve: None,
-            mcp_transport: true,
-        });
+    fn tool_call_matches(a: &ToolCall, b: &ToolCall) -> bool {
+        a.name == b.name && a.input == b.input
     }
 
-    /// Records that the user approved a Dust-side `ToolApproveExecution` for `tool_name`.
-    /// The next `McpToolUse` for the same tool will be auto-approved to avoid a double prompt.
-    /// Called synchronously before the `validate_action` spawn, so the entry is always present
-    /// before Dust can deliver the subsequent `tools/call` over the MCP transport.
-    pub fn mark_tool_transport_pre_approved(&mut self, tool_name: String) {
-        tracing::debug!(tool = %tool_name, "marking MCP transport call as pre-approved");
-        self.pending_mcp_transport_approvals.push_back(tool_name);
+    fn pending_mcp_occurrence_matches(
+        occurrence: &PendingMcpTransportOccurrence,
+        tool_call: &ToolCall,
+    ) -> bool {
+        Self::tool_call_matches(&occurrence.signature, tool_call)
     }
 
-    /// Returns `true` and consumes the pre-approval if one exists for `tool_name`.
-    pub fn consume_transport_pre_approval(&mut self, tool_name: &str) -> bool {
-        if let Some(pos) = self
-            .pending_mcp_transport_approvals
+    pub fn pending_mcp_ui_call_id(&self, tool_call: &ToolCall) -> Option<String> {
+        self.pending_mcp_transport_occurrences
             .iter()
-            .position(|n| n == tool_name)
+            .find(|occurrence| Self::pending_mcp_occurrence_matches(occurrence, tool_call))
+            .and_then(|occurrence| occurrence.ui_call_id.clone())
+    }
+
+    pub fn register_pending_mcp_transport_call(&mut self, tool_call: ToolCall) -> Option<String> {
+        if self
+            .pending_mcp_transport_occurrences
+            .iter()
+            .any(|occurrence| {
+                occurrence
+                    .transport_call
+                    .as_ref()
+                    .is_some_and(|pending| pending.id == tool_call.id)
+            })
         {
-            self.pending_mcp_transport_approvals.remove(pos);
-            tracing::debug!(tool = %tool_name, "consuming MCP transport pre-approval (skipping duplicate gate)");
-            true
-        } else {
-            false
+            return None;
         }
+        if let Some(pos) = self
+            .pending_mcp_transport_occurrences
+            .iter()
+            .position(|occurrence| {
+                Self::pending_mcp_occurrence_matches(occurrence, &tool_call)
+                    && occurrence.transport_call.is_none()
+            })
+        {
+            let (approval_approved, ui_call_id) = {
+                let occurrence = &mut self.pending_mcp_transport_occurrences[pos];
+                if occurrence.ui_call_id.is_none() {
+                    occurrence.ui_call_id = Some(tool_call.id.clone());
+                }
+                occurrence.transport_call = Some(tool_call.clone());
+                (occurrence.approval_approved, occurrence.ui_call_id.clone())
+            };
+            match approval_approved {
+                Some(true) => {
+                    if let Some(call_id) = ui_call_id {
+                        tracing::debug!(
+                            tool = %tool_call.name,
+                            transport_id = %tool_call.id,
+                            approval_call_id = %call_id,
+                            "releasing buffered MCP transport call after pre-approval"
+                        );
+                        let _ = self.pending_mcp_transport_occurrences.remove(pos);
+                        Some(call_id)
+                    } else {
+                        tracing::debug!(
+                            tool = %tool_call.name,
+                            transport_id = %tool_call.id,
+                            "buffering MCP transport call until approval completes"
+                        );
+                        None
+                    }
+                }
+                Some(false) => {
+                    tracing::debug!(
+                        tool = %tool_call.name,
+                        transport_id = %tool_call.id,
+                        "dropping buffered MCP transport call after rejection"
+                    );
+                    let _ = self.pending_mcp_transport_occurrences.remove(pos);
+                    None
+                }
+                None => {
+                    tracing::debug!(
+                        tool = %tool_call.name,
+                        transport_id = %tool_call.id,
+                        "buffering MCP transport call until approval completes"
+                    );
+                    None
+                }
+            }
+        } else {
+            tracing::debug!(tool = %tool_call.name, transport_id = %tool_call.id, "buffering MCP transport call until approval completes");
+            self.pending_mcp_transport_occurrences
+                .push_back(PendingMcpTransportOccurrence::new(tool_call.clone()));
+            if let Some(back) = self.pending_mcp_transport_occurrences.back_mut() {
+                back.ui_call_id = Some(tool_call.id.clone());
+                back.transport_call = Some(tool_call);
+            }
+            None
+        }
+    }
+
+    /// Records that the user approved or denied a Dust-side `ToolApproveExecution` for a
+    /// specific call. Returns the UI call id and buffered transport if approval can be completed.
+    pub fn register_mcp_approval_validation(
+        &mut self,
+        approval_call_id: String,
+        tool_call: ToolCall,
+        approved: bool,
+    ) -> Option<(String, ToolCall)> {
+        if let Some(pos) = self
+            .pending_mcp_transport_occurrences
+            .iter()
+            .position(|occurrence| {
+                Self::pending_mcp_occurrence_matches(occurrence, &tool_call)
+                    && occurrence.approval_approved.is_none()
+            })
+        {
+            let (transport_call, ui_call_id) = {
+                let occurrence = &mut self.pending_mcp_transport_occurrences[pos];
+                if occurrence.ui_call_id.is_none() {
+                    occurrence.ui_call_id = Some(approval_call_id.clone());
+                }
+                occurrence.approval_call_id = Some(approval_call_id.clone());
+                occurrence.approval_approved = Some(approved);
+                (
+                    occurrence.transport_call.clone(),
+                    occurrence.ui_call_id.clone(),
+                )
+            };
+            if approved {
+                if let (Some(transport_call), Some(call_id)) = (transport_call, ui_call_id) {
+                    tracing::debug!(
+                        tool = %tool_call.name,
+                        approval_call_id = %approval_call_id,
+                        transport_id = %transport_call.id,
+                        "releasing buffered MCP transport call after approval"
+                    );
+                    let _ = self.pending_mcp_transport_occurrences.remove(pos);
+                    return Some((call_id, transport_call));
+                }
+                tracing::debug!(
+                    tool = %tool_call.name,
+                    approval_call_id = %approval_call_id,
+                    "recorded MCP pre-approval awaiting transport"
+                );
+                return None;
+            }
+            if transport_call.is_some() {
+                tracing::debug!(
+                    tool = %tool_call.name,
+                    approval_call_id = %approval_call_id,
+                    "dropping buffered MCP transport call after rejection"
+                );
+                let _ = self.pending_mcp_transport_occurrences.remove(pos);
+            } else {
+                tracing::debug!(
+                    tool = %tool_call.name,
+                    approval_call_id = %approval_call_id,
+                    "recorded MCP rejection awaiting transport"
+                );
+            }
+            return None;
+        }
+        tracing::debug!(
+            tool = %tool_call.name,
+            approval_call_id = %approval_call_id,
+            "recorded MCP approval awaiting transport"
+        );
+        self.pending_mcp_transport_occurrences
+            .push_back(PendingMcpTransportOccurrence::new(tool_call));
+        if let Some(back) = self.pending_mcp_transport_occurrences.back_mut() {
+            back.ui_call_id = Some(approval_call_id.clone());
+            back.approval_call_id = Some(approval_call_id);
+            back.approval_approved = Some(approved);
+        }
+        None
+    }
+
+    #[allow(dead_code)]
+    pub fn buffer_pending_mcp_transport_call(&mut self, tool_call: ToolCall) {
+        let _ = self.register_pending_mcp_transport_call(tool_call);
+    }
+
+    #[allow(dead_code)]
+    pub fn take_pending_mcp_transport_call(&mut self, tool_call: &ToolCall) -> Option<ToolCall> {
+        let position = self
+            .pending_mcp_transport_occurrences
+            .iter()
+            .position(|occurrence| {
+                Self::pending_mcp_occurrence_matches(occurrence, tool_call)
+                    && occurrence.transport_call.is_some()
+            });
+        position.and_then(|idx| {
+            self.pending_mcp_transport_occurrences
+                .remove(idx)
+                .and_then(|occurrence| occurrence.transport_call)
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn mark_tool_transport_pre_approved(
+        &mut self,
+        approval_call_id: String,
+        tool_call: ToolCall,
+    ) {
+        let _ = self.register_mcp_approval_validation(approval_call_id, tool_call, true);
+    }
+
+    #[allow(dead_code)]
+    pub fn take_transport_pre_approval(&mut self, tool_call: &ToolCall) -> Option<String> {
+        let position = self
+            .pending_mcp_transport_occurrences
+            .iter()
+            .position(|occurrence| {
+                Self::pending_mcp_occurrence_matches(occurrence, tool_call)
+                    && occurrence.approval_approved == Some(true)
+                    && occurrence.approval_call_id.is_some()
+                    && occurrence.transport_call.is_none()
+            });
+        position.and_then(|idx| {
+            self.pending_mcp_transport_occurrences
+                .remove(idx)
+                .and_then(|occurrence| occurrence.approval_call_id)
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn clear_tool_transport_state(&mut self, tool_call: &ToolCall) {
+        if let Some(idx) = self
+            .pending_mcp_transport_occurrences
+            .iter()
+            .position(|occurrence| Self::pending_mcp_occurrence_matches(occurrence, tool_call))
+        {
+            let _ = self.pending_mcp_transport_occurrences.remove(idx);
+        }
+    }
+
+    #[cfg(test)]
+    pub fn pending_mcp_transport_call_ids(&self) -> Vec<String> {
+        self.pending_mcp_transport_occurrences
+            .iter()
+            .filter_map(|occurrence| {
+                occurrence
+                    .transport_call
+                    .as_ref()
+                    .map(|call| call.id.clone())
+            })
+            .collect()
     }
 
     pub fn exit_tool_approval(&mut self) {
@@ -684,26 +917,6 @@ impl App {
         });
         self.scroll_offset = 0;
         call_id
-    }
-
-    /// Returns the `call_id` of an existing non-failed/denied tool call with the same
-    /// name and input — used to detect `ToolApproveExecution` + `McpToolUse` duplicates.
-    pub fn find_active_tool_call_by_name_and_input(
-        &self,
-        tool_name: &str,
-        input: &serde_json::Value,
-    ) -> Option<String> {
-        self.messages.iter().find_map(|m| {
-            if let Role::ToolCall(e) = &m.role
-                && e.tool_name == tool_name
-                && &e.input == input
-                && !matches!(e.status, ToolCallStatus::Failed | ToolCallStatus::Denied)
-            {
-                Some(e.call_id.clone())
-            } else {
-                None
-            }
-        })
     }
 
     pub fn set_tool_call_running(&mut self, call_id: &str) {
@@ -1463,52 +1676,208 @@ mod tests {
     #[test]
     fn pre_approval_consumed_once_suppresses_duplicate_gate() {
         let mut app = App::new("test-agent", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "transport-1".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
 
         // No pre-approval recorded yet → not consumed.
-        assert!(!app.consume_transport_pre_approval("bash"));
+        assert!(app.take_transport_pre_approval(&tool_call).is_none());
 
-        // Record a Dust-side approval for "bash".
-        app.mark_tool_transport_pre_approved("bash".to_string());
+        // Record a Dust-side approval for this exact call.
+        app.mark_tool_transport_pre_approved("approve-1".to_string(), tool_call.clone());
 
-        // First consumption returns true (suppresses duplicate gate).
-        assert!(app.consume_transport_pre_approval("bash"));
+        // First consumption returns the matching approval call id.
+        assert_eq!(
+            app.take_transport_pre_approval(&tool_call).as_deref(),
+            Some("approve-1")
+        );
 
         // Second consumption returns false (entry was removed).
-        assert!(!app.consume_transport_pre_approval("bash"));
+        assert!(app.take_transport_pre_approval(&tool_call).is_none());
     }
 
     #[test]
-    fn pre_approval_is_tool_name_scoped() {
+    fn pre_approval_is_call_specific() {
         let mut app = App::new("test-agent", "/workspace", None);
+        let approved_call = ToolCall {
+            id: "transport-1".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        let other_call = ToolCall {
+            id: "transport-2".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "pwd"}),
+        };
 
-        app.mark_tool_transport_pre_approved("bash".to_string());
+        app.mark_tool_transport_pre_approved("approve-1".to_string(), approved_call.clone());
 
-        // A different tool name does not consume the bash pre-approval.
-        assert!(!app.consume_transport_pre_approval("list_files"));
+        // A different call signature does not consume the pre-approval.
+        assert!(app.take_transport_pre_approval(&other_call).is_none());
 
-        // The bash entry is still intact.
-        assert!(app.consume_transport_pre_approval("bash"));
+        // The original call is still intact.
+        assert_eq!(
+            app.take_transport_pre_approval(&approved_call).as_deref(),
+            Some("approve-1")
+        );
     }
 
     #[test]
-    fn multiple_pre_approvals_for_same_tool_require_multiple_consumptions() {
+    fn buffered_transport_call_is_released_when_approval_succeeds() {
         let mut app = App::new("test-agent", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "transport-1".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
 
-        app.mark_tool_transport_pre_approved("bash".to_string());
-        app.mark_tool_transport_pre_approved("bash".to_string());
+        // Transport can arrive before approval and is buffered.
+        app.buffer_pending_mcp_transport_call(tool_call.clone());
 
-        assert!(app.consume_transport_pre_approval("bash"));
-        assert!(app.consume_transport_pre_approval("bash"));
-        assert!(!app.consume_transport_pre_approval("bash"));
+        // Once the approval succeeds, the buffered transport can be released.
+        assert_eq!(
+            app.take_pending_mcp_transport_call(&tool_call)
+                .map(|call| call.id),
+            Some("transport-1".to_string())
+        );
     }
 
     #[test]
-    fn new_conversation_clears_pending_pre_approvals() {
+    fn failed_approval_clears_pending_transport_state() {
         let mut app = App::new("test-agent", "/workspace", None);
-        app.mark_tool_transport_pre_approved("bash".to_string());
+        let tool_call = ToolCall {
+            id: "transport-1".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+
+        app.buffer_pending_mcp_transport_call(tool_call.clone());
+        app.mark_tool_transport_pre_approved("approve-1".to_string(), tool_call.clone());
+        app.clear_tool_transport_state(&tool_call);
+
+        // Neither buffered transport nor approval token should survive a rejection.
+        assert!(app.take_pending_mcp_transport_call(&tool_call).is_none());
+        assert!(app.take_transport_pre_approval(&tool_call).is_none());
+    }
+
+    #[test]
+    fn identical_signature_denial_releases_only_one_buffered_call() {
+        let mut app = App::new("test-agent", "/workspace", None);
+        let approval_one = ToolCall {
+            id: "approve-1".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        let approval_two = ToolCall {
+            id: "approve-2".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        let transport_one = ToolCall {
+            id: "transport-1".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        let transport_two = ToolCall {
+            id: "transport-2".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+
+        assert!(
+            app.register_mcp_approval_validation("approve-1".to_string(), approval_one, false)
+                .is_none()
+        );
+        assert!(
+            app.register_mcp_approval_validation("approve-2".to_string(), approval_two, true)
+                .is_none()
+        );
+
+        assert!(
+            app.register_pending_mcp_transport_call(transport_one.clone())
+                .is_none()
+        );
+        assert_eq!(
+            app.register_pending_mcp_transport_call(transport_two.clone()),
+            Some("approve-2".to_string())
+        );
+    }
+
+    #[test]
+    fn identical_signature_approval_releases_at_most_one_buffered_transport() {
+        let mut app = App::new("test-agent", "/workspace", None);
+        let approval = ToolCall {
+            id: "approve-1".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        let transport_one = ToolCall {
+            id: "transport-1".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        let transport_two = ToolCall {
+            id: "transport-2".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+
+        assert!(
+            app.register_pending_mcp_transport_call(transport_one.clone())
+                .is_none()
+        );
+        assert!(
+            app.register_pending_mcp_transport_call(transport_two.clone())
+                .is_none()
+        );
+
+        let released =
+            app.register_mcp_approval_validation("approve-1".to_string(), approval, true);
+        assert_eq!(
+            released
+                .as_ref()
+                .map(|(call_id, call)| (call_id.as_str(), call.id.as_str())),
+            Some(("transport-1", "transport-1"))
+        );
+
+        assert_eq!(
+            app.pending_mcp_transport_call_ids(),
+            vec!["transport-2".to_string()]
+        );
+    }
+
+    #[test]
+    fn new_conversation_clears_pending_transport_state() {
+        let mut app = App::new("test-agent", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "transport-1".into(),
+            name: "bash".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+
+        app.buffer_pending_mcp_transport_call(tool_call.clone());
+        app.mark_tool_transport_pre_approved("approve-1".to_string(), tool_call);
         app.new_conversation();
-        // Pre-approval should be gone — a gate in the new conversation must not be suppressed.
-        assert!(!app.consume_transport_pre_approval("bash"));
+
+        // Transport state should be gone so the next conversation starts cleanly.
+        assert!(
+            app.take_pending_mcp_transport_call(&ToolCall {
+                id: "transport-1".into(),
+                name: "bash".into(),
+                input: serde_json::json!({"command": "ls"}),
+            })
+            .is_none()
+        );
+        assert!(
+            app.take_transport_pre_approval(&ToolCall {
+                id: "transport-1".into(),
+                name: "bash".into(),
+                input: serde_json::json!({"command": "ls"}),
+            })
+            .is_none()
+        );
     }
 
     #[test]
@@ -2030,51 +2399,42 @@ mod tests {
     }
 
     #[test]
-    fn find_active_tool_call_returns_none_when_empty() {
-        let app = App::new("a", "/workspace", None);
-        assert_eq!(
-            app.find_active_tool_call_by_name_and_input(
-                "oxide_bash",
-                &serde_json::json!({"command": "ls -al"})
-            ),
-            None
-        );
+    fn take_pending_transport_returns_none_when_empty() {
+        let mut app = App::new("a", "/workspace", None);
+        let tool_call = ToolCall {
+            id: "call-123".to_string(),
+            name: "oxide_bash".to_string(),
+            input: serde_json::json!({"command": "ls -al"}),
+        };
+        assert!(app.take_pending_mcp_transport_call(&tool_call).is_none());
     }
 
     #[test]
-    fn find_active_tool_call_matches_pending_entry() {
+    fn take_pending_transport_matches_buffered_entry() {
         let mut app = App::new("a", "/workspace", None);
         let tool_call = ToolCall {
             id: "act-abc".to_string(),
             name: "oxide_bash".to_string(),
             input: serde_json::json!({"command": "ls -al"}),
         };
-        app.push_tool_call(tool_call);
+        app.buffer_pending_mcp_transport_call(tool_call.clone());
         assert_eq!(
-            app.find_active_tool_call_by_name_and_input(
-                "oxide_bash",
-                &serde_json::json!({"command": "ls -al"})
-            ),
+            app.take_pending_mcp_transport_call(&tool_call)
+                .map(|pending| pending.id),
             Some("act-abc".to_string())
         );
     }
 
     #[test]
-    fn find_active_tool_call_returns_none_after_failed() {
+    fn buffered_transport_is_removed_after_clear() {
         let mut app = App::new("a", "/workspace", None);
         let tool_call = ToolCall {
             id: "act-abc".to_string(),
             name: "oxide_bash".to_string(),
             input: serde_json::json!({"command": "ls -al"}),
         };
-        app.push_tool_call(tool_call);
-        app.fail_tool_call("act-abc", "some error".to_string());
-        assert_eq!(
-            app.find_active_tool_call_by_name_and_input(
-                "oxide_bash",
-                &serde_json::json!({"command": "ls -al"})
-            ),
-            None
-        );
+        app.buffer_pending_mcp_transport_call(tool_call.clone());
+        app.clear_tool_transport_state(&tool_call);
+        assert!(app.take_pending_mcp_transport_call(&tool_call).is_none());
     }
 }

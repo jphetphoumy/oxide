@@ -235,6 +235,23 @@ fn handle_dust_message(
         } => {
             app.complete_subagent(&call_id, success);
         }
+        DustEvent::McpApprovalValidated {
+            call_id,
+            tool_call,
+            approved,
+            error,
+        } => {
+            handle_mcp_approval_validated_event(
+                &call_id,
+                &tool_call,
+                approved,
+                error,
+                app,
+                client,
+                mcp_manager,
+                dust_tx,
+            );
+        }
         DustEvent::ContextUsage { used, size } => {
             app.set_context_usage(used, size);
         }
@@ -328,112 +345,46 @@ fn handle_mcp_tool_use_event(
     mcp_manager: &Arc<tokio::sync::Mutex<McpManager>>,
     dust_tx: &tokio::sync::mpsc::UnboundedSender<DustEvent>,
 ) {
-    // Detect duplicate: ToolApproveExecution already created a UI entry for this tool call.
-    // Dust sends tools/call via MCP transport AFTER validate_action, so we just execute
-    // and post the result without creating a new entry or showing a second approval prompt.
-    if let Some(existing_call_id) =
-        app.find_active_tool_call_by_name_and_input(&tool_call.name, &tool_call.input)
-    {
-        tracing::debug!(
-            tool = %tool_call.name,
-            existing_call_id = %existing_call_id,
-            "MCP tools/call is duplicate of already-shown ToolApproveExecution entry, executing silently"
-        );
-        let tool_name = tool_call.name.clone();
-        let input_json = tool_call.input.clone();
-        let tool_use_id = tool_call.id.clone(); // MCP request id for post_mcp_result
-        let dust_client = client.cloned();
-        let mcp = mcp_manager.clone();
-        let conversation_id = app.conversation_id().map(ToString::to_string);
-        let user_message_id = app.user_message_id().map(ToString::to_string);
-        let resume_tx = dust_tx.clone();
-        tokio::spawn(async move {
-            let (content, is_error) = match mcp.lock().await.call_tool(&tool_name, input_json).await
-            {
-                Ok(result) => (result.content, result.is_error),
-                Err(e) => {
-                    tracing::error!(tool = %tool_name, error = %e, "MCP tool execution failed (dedup path)");
-                    (format!("error: {e}"), true)
-                }
-            };
-            // Update the existing UI entry with the actual tool result
-            let _ = resume_tx.send(DustEvent::ToolCallResult {
-                call_id: existing_call_id,
-                result: content.clone(),
-                is_error,
-            });
-            if let Some(c) = dust_client {
-                if let Err(e) = c.post_mcp_result(&tool_use_id, &content, is_error).await {
-                    tracing::error!(error = %e, "failed to post MCP tool result (dedup path)");
-                    return;
-                }
-                if let (Some(conv_id), Some(user_msg_id)) =
-                    (conversation_id.as_deref(), user_message_id.as_deref())
-                    && let Err(e) = c
-                        .resume_message_stream(conv_id, user_msg_id, resume_tx.clone())
-                        .await
-                {
-                    tracing::error!(error = %e, "failed to resume stream after MCP tool (dedup path)");
-                }
-            }
-        });
-        return;
-    }
-
     let is_safe_tool = tool_call.name == SAFE_TOOL_NAME;
-    let pre_approved = app.consume_transport_pre_approval(&tool_call.name);
-    let should_auto_approve = app.auto_approve_tools() || is_safe_tool || pre_approved;
-    if should_auto_approve {
-        tracing::debug!(tool = %tool_call.name, "auto-approving MCP tool call");
-        let call_id = app.push_tool_call(tool_call.clone());
-        app.set_tool_call_running(&call_id);
-
-        let tool_name = tool_call.name.clone();
-        let input_json = tool_call.input.clone();
-        let tool_use_id = tool_call.id.clone();
-        let dust_client = client.cloned();
-        let mcp = mcp_manager.clone();
-        let conversation_id = app.conversation_id().map(ToString::to_string);
-        let user_message_id = app.user_message_id().map(ToString::to_string);
-        let resume_tx = dust_tx.clone();
-        let call_id_clone = call_id.clone();
-        tokio::spawn(async move {
-            let (content, is_error) = match mcp.lock().await.call_tool(&tool_name, input_json).await
-            {
-                Ok(result) => (result.content, result.is_error),
-                Err(e) => {
-                    tracing::error!(tool = %tool_name, error = %e, "MCP tool execution failed");
-                    (format!("error: {e}"), true)
-                }
-            };
-            let _ = resume_tx.send(DustEvent::ToolCallResult {
-                call_id: call_id_clone,
-                result: content.clone(),
-                is_error,
-            });
-            if let Some(c) = dust_client {
-                if let Err(e) = c.post_mcp_result(&tool_use_id, &content, is_error).await {
-                    tracing::error!(error = %e, "failed to post MCP tool result");
-                    return;
-                }
-                // Resume the conversation SSE to get Dust's continued response.
-                // The server closes the SSE while waiting for tool execution,
-                // so we must reopen it after posting the result.
-                if let (Some(conv_id), Some(user_msg_id)) =
-                    (conversation_id.as_deref(), user_message_id.as_deref())
-                    && let Err(e) = c
-                        .resume_message_stream(conv_id, user_msg_id, resume_tx.clone())
-                        .await
-                {
-                    tracing::error!(error = %e, "failed to resume stream after MCP tool");
-                }
-            }
-        });
+    if app.auto_approve_tools() || is_safe_tool {
+        if app.pending_mcp_ui_call_id(tool_call).is_none() {
+            tracing::debug!(tool = %tool_call.name, "auto-approving MCP tool call");
+            let _ = app.push_tool_call(tool_call.clone());
+        }
+        if let Some(call_id) = app.register_pending_mcp_transport_call(tool_call.clone()) {
+            app.set_tool_call_running(&call_id);
+            spawn_mcp_transport_execution(
+                call_id,
+                tool_call,
+                client,
+                mcp_manager,
+                dust_tx,
+                app.conversation_id().map(ToString::to_string),
+                app.user_message_id().map(ToString::to_string),
+            );
+        }
     } else {
-        tracing::debug!(tool = %tool_call.name, "showing McpToolUse gate to user (no pre-approval found)");
-        // MCP external tools require approval - mark as MCP transport so we use post_mcp_result
-        let call_id = app.push_tool_call(tool_call.clone());
-        app.enter_mcp_transport_tool_approval(tool_call.clone(), call_id);
+        if app.pending_mcp_ui_call_id(tool_call).is_none() {
+            let _ = app.push_tool_call(tool_call.clone());
+        }
+        let pre_approved_call_id = app.register_pending_mcp_transport_call(tool_call.clone());
+        if let Some(call_id) = pre_approved_call_id {
+            app.set_tool_call_running(&call_id);
+            spawn_mcp_transport_execution(
+                call_id,
+                tool_call,
+                client,
+                mcp_manager,
+                dust_tx,
+                app.conversation_id().map(ToString::to_string),
+                app.user_message_id().map(ToString::to_string),
+            );
+        } else {
+            tracing::debug!(
+                tool = %tool_call.name,
+                "buffering MCP transport call until approval completes"
+            );
+        }
     }
 }
 
@@ -460,16 +411,15 @@ fn handle_tool_approve_execution_event(
     };
     let is_safe_tool = tool_name == SAFE_TOOL_NAME;
     let should_auto_approve = app.auto_approve_tools() || is_safe_tool;
+    let ui_call_id = app
+        .pending_mcp_ui_call_id(&fake_call)
+        .unwrap_or_else(|| app.push_tool_call(fake_call.clone()));
     if should_auto_approve {
         // No pre-approval mark needed: handle_mcp_tool_use_event also checks auto_approve_tools /
         // is_safe_tool independently, so the subsequent McpToolUse will also be auto-executed.
         tracing::debug!(action_id = %mcp_info.action_id, "auto-approving MCP tool");
-        let call_id = app.push_tool_call(fake_call);
-        app.set_tool_call_running(&call_id);
-
         let dust_client = client.cloned();
         let mcp_info_moved = mcp_info;
-        let call_id_clone = call_id.clone();
         let dust_tx_inner = dust_tx.clone();
         tokio::spawn(async move {
             if let Some(c) = dust_client
@@ -483,23 +433,23 @@ fn handle_tool_approve_execution_event(
                     .await
             {
                 tracing::error!(error = %e, "failed to auto-validate MCP action");
-                let _ = dust_tx_inner.send(DustEvent::ToolCallResult {
-                    call_id: call_id_clone,
-                    result: format!("error: {e}"),
-                    is_error: true,
+                let _ = dust_tx_inner.send(DustEvent::McpApprovalValidated {
+                    call_id: ui_call_id,
+                    tool_call: fake_call,
+                    approved: false,
+                    error: Some(e.to_string()),
                 });
             } else {
-                // Auto-approval succeeded, mark as done with empty result
-                let _ = dust_tx_inner.send(DustEvent::ToolCallResult {
-                    call_id: call_id_clone,
-                    result: String::new(),
-                    is_error: false,
+                let _ = dust_tx_inner.send(DustEvent::McpApprovalValidated {
+                    call_id: ui_call_id,
+                    tool_call: fake_call,
+                    approved: true,
+                    error: None,
                 });
             }
         });
     } else {
-        let call_id = app.push_tool_call(fake_call.clone());
-        app.enter_mcp_tool_approval(fake_call, call_id, mcp_info);
+        app.enter_mcp_tool_approval(fake_call, ui_call_id, mcp_info);
     }
 }
 
@@ -528,19 +478,20 @@ fn handle_approve_tool_action(
     mcp_manager: &Arc<tokio::sync::Mutex<McpManager>>,
     dust_tx: &tokio::sync::mpsc::UnboundedSender<DustEvent>,
 ) {
-    let tool_call = state.tool_call.clone();
-    let call_id = state.call_id.clone();
-    app.set_tool_call_running(&call_id);
+    let crate::app::ToolApprovalState {
+        call_id,
+        tool_call,
+        mcp_approve,
+        mcp_transport,
+    } = state;
     app.exit_tool_approval();
     let dust_client = client;
     let mcp = mcp_manager.clone();
     let dust_tx_inner = dust_tx.clone();
-    if let Some(mcp_info) = state.mcp_approve {
+    if let Some(mcp_info) = mcp_approve {
         // MCP flow: just approve via validate_action.
-        // Mark pre-approved synchronously so that the MCP transport tools/call that Dust
-        // delivers right after validate_action is auto-executed without a second prompt.
-        app.mark_tool_transport_pre_approved(tool_call.name);
         let call_id_clone = call_id.clone();
+        let tool_call_for_event = tool_call;
         tokio::spawn(async move {
             if let Some(c) = dust_client
                 && let Err(e) = c
@@ -553,22 +504,24 @@ fn handle_approve_tool_action(
                     .await
             {
                 tracing::error!(error = %e, "failed to validate MCP action");
-                let _ = dust_tx_inner.send(DustEvent::ToolCallResult {
+                let _ = dust_tx_inner.send(DustEvent::McpApprovalValidated {
                     call_id: call_id_clone,
-                    result: format!("error: {e}"),
-                    is_error: true,
+                    tool_call: tool_call_for_event,
+                    approved: false,
+                    error: Some(e.to_string()),
                 });
             } else {
-                // Manual approval succeeded, mark as done with empty result
-                let _ = dust_tx_inner.send(DustEvent::ToolCallResult {
+                let _ = dust_tx_inner.send(DustEvent::McpApprovalValidated {
                     call_id: call_id_clone,
-                    result: String::new(),
-                    is_error: false,
+                    tool_call: tool_call_for_event,
+                    approved: true,
+                    error: None,
                 });
             }
         });
-    } else if state.mcp_transport {
+    } else if mcp_transport {
         // MCP transport tool: execute + post result + resume stream
+        app.set_tool_call_running(&call_id);
         let tool_name = tool_call.name.clone();
         let input_json = tool_call.input.clone();
         let tool_use_id = tool_call.id;
@@ -608,6 +561,7 @@ fn handle_approve_tool_action(
         });
     } else {
         // Old non-MCP conversation tool flow: execute + submit result + resume stream
+        app.set_tool_call_running(&call_id);
         let tool_name = tool_call.name.clone();
         let input_json = tool_call.input.clone();
         let tool_use_id = tool_call.id;
@@ -653,6 +607,97 @@ fn handle_approve_tool_action(
             }
         });
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_mcp_approval_validated_event(
+    call_id: &str,
+    tool_call: &crate::mcp::ToolCall,
+    approved: bool,
+    error: Option<String>,
+    app: &mut App,
+    client: Option<&DustClient>,
+    mcp_manager: &Arc<tokio::sync::Mutex<McpManager>>,
+    dust_tx: &tokio::sync::mpsc::UnboundedSender<DustEvent>,
+) {
+    if approved {
+        if let Some((ui_call_id, pending_tool_call)) =
+            app.register_mcp_approval_validation(call_id.to_string(), tool_call.clone(), true)
+        {
+            tracing::debug!(
+                tool = %tool_call.name,
+                call_id = %ui_call_id,
+                transport_id = %pending_tool_call.id,
+                "releasing buffered MCP transport call after approval"
+            );
+            app.set_tool_call_running(&ui_call_id);
+            spawn_mcp_transport_execution(
+                ui_call_id,
+                &pending_tool_call,
+                client,
+                mcp_manager,
+                dust_tx,
+                app.conversation_id().map(ToString::to_string),
+                app.user_message_id().map(ToString::to_string),
+            );
+        }
+    } else {
+        let error = error.unwrap_or_else(|| "failed to validate MCP action".to_string());
+        let ui_call_id = app
+            .pending_mcp_ui_call_id(tool_call)
+            .unwrap_or_else(|| call_id.to_string());
+        let _ = app.register_mcp_approval_validation(call_id.to_string(), tool_call.clone(), false);
+        app.fail_tool_call(&ui_call_id, error);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_mcp_transport_execution(
+    ui_call_id: String,
+    tool_call: &crate::mcp::ToolCall,
+    client: Option<&DustClient>,
+    mcp_manager: &Arc<tokio::sync::Mutex<McpManager>>,
+    dust_tx: &tokio::sync::mpsc::UnboundedSender<DustEvent>,
+    conversation_id: Option<String>,
+    user_message_id: Option<String>,
+) {
+    let tool_name = tool_call.name.clone();
+    let input_json = tool_call.input.clone();
+    let tool_use_id = tool_call.id.clone();
+    let dust_client = client.cloned();
+    let mcp = mcp_manager.clone();
+    let resume_tx = dust_tx.clone();
+    tokio::spawn(async move {
+        let (content, is_error) = match mcp.lock().await.call_tool(&tool_name, input_json).await {
+            Ok(result) => (result.content, result.is_error),
+            Err(e) => {
+                tracing::error!(tool = %tool_name, error = %e, "MCP tool execution failed");
+                (format!("error: {e}"), true)
+            }
+        };
+        let _ = resume_tx.send(DustEvent::ToolCallResult {
+            call_id: ui_call_id,
+            result: content.clone(),
+            is_error,
+        });
+        if let Some(c) = dust_client {
+            if let Err(e) = c.post_mcp_result(&tool_use_id, &content, is_error).await {
+                tracing::error!(error = %e, "failed to post MCP tool result");
+                return;
+            }
+            // Resume the conversation SSE to get Dust's continued response.
+            // The server closes the SSE while waiting for tool execution,
+            // so we must reopen it after posting the result.
+            if let (Some(conv_id), Some(user_msg_id)) =
+                (conversation_id.as_deref(), user_message_id.as_deref())
+                && let Err(e) = c
+                    .resume_message_stream(conv_id, user_msg_id, resume_tx.clone())
+                    .await
+            {
+                tracing::error!(error = %e, "failed to resume stream after MCP tool");
+            }
+        }
+    });
 }
 
 fn handle_agent_picker_key_event(
@@ -1143,6 +1188,51 @@ fn is_safe_tool(tool_name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::{AppMode, ToolCallStatus};
+    use crate::dust::client::DustEvent;
+    use crate::mcp::{McpManager, ToolCall};
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::{Mutex, mpsc};
+
+    async fn test_mcp_manager() -> Arc<Mutex<McpManager>> {
+        let config = crate::config::McpConfig {
+            auto_approve: false,
+            servers: vec![crate::config::McpServerConfig {
+                name: "bash".to_string(),
+                builtin: Some("bash".to_string()),
+                command: None,
+                args: vec![],
+                env: HashMap::new(),
+            }],
+        };
+        Arc::new(Mutex::new(
+            McpManager::init(&config, vec![], None)
+                .await
+                .expect("init test mcp manager"),
+        ))
+    }
+
+    fn tool_call_entry<'a>(app: &'a App, call_id: &str) -> &'a crate::app::ToolCallEntry {
+        app.messages()
+            .iter()
+            .find_map(|message| match &message.role {
+                crate::app::Role::ToolCall(entry) if entry.call_id == call_id => Some(entry),
+                _ => None,
+            })
+            .expect("tool call entry")
+    }
+
+    fn drain_events(
+        app: &mut App,
+        dust_rx: &mut mpsc::UnboundedReceiver<DustEvent>,
+        mcp_manager: &Arc<Mutex<McpManager>>,
+        dust_tx: &mpsc::UnboundedSender<DustEvent>,
+    ) {
+        while let Ok(message) = dust_rx.try_recv() {
+            handle_dust_message(message, app, None, mcp_manager, dust_tx);
+        }
+    }
 
     #[test]
     fn oxide_skill_is_safe() {
@@ -1164,5 +1254,162 @@ mod tests {
         assert!(!is_safe_tool("my_custom_tool"));
         assert!(!is_safe_tool("fs_tool"));
         assert!(!is_safe_tool("api_tool"));
+    }
+
+    #[tokio::test]
+    async fn auto_approve_approval_first_uses_single_row() {
+        let mcp_manager = test_mcp_manager().await;
+        let mut app = App::new("agent", "/workspace", None);
+        app.set_auto_approve(true);
+        let (dust_tx, mut dust_rx) = mpsc::unbounded_channel::<DustEvent>();
+        let tool_call = ToolCall {
+            id: "transport-1".into(),
+            name: "custom_tool".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+
+        handle_tool_approve_execution_event(
+            "approve-1".to_string(),
+            "conv-1".to_string(),
+            "msg-1".to_string(),
+            &tool_call.name,
+            tool_call.input.clone(),
+            &mut app,
+            None,
+            &dust_tx,
+        );
+        assert_eq!(app.messages().len(), 1);
+        assert!(matches!(
+            tool_call_entry(&app, "approve-1").status,
+            ToolCallStatus::Pending
+        ));
+
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        drain_events(&mut app, &mut dust_rx, &mcp_manager, &dust_tx);
+        assert_eq!(app.messages().len(), 1);
+        assert!(matches!(
+            tool_call_entry(&app, "approve-1").status,
+            ToolCallStatus::Pending
+        ));
+
+        let transport_call = ToolCall {
+            id: "transport-1".into(),
+            name: "custom_tool".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        handle_mcp_tool_use_event(&transport_call, &mut app, None, &mcp_manager, &dust_tx);
+        assert_eq!(app.messages().len(), 1);
+        assert!(matches!(
+            tool_call_entry(&app, "approve-1").status,
+            ToolCallStatus::Running
+        ));
+
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        drain_events(&mut app, &mut dust_rx, &mcp_manager, &dust_tx);
+        assert_eq!(app.messages().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn auto_approve_transport_first_keeps_single_row() {
+        let mcp_manager = test_mcp_manager().await;
+        let mut app = App::new("agent", "/workspace", None);
+        app.set_auto_approve(true);
+        let (dust_tx, mut dust_rx) = mpsc::unbounded_channel::<DustEvent>();
+        let transport_call = ToolCall {
+            id: "transport-1".into(),
+            name: "custom_tool".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        let approval_call = ToolCall {
+            id: "approve-1".into(),
+            name: "custom_tool".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+
+        handle_mcp_tool_use_event(&transport_call, &mut app, None, &mcp_manager, &dust_tx);
+        assert_eq!(app.messages().len(), 1);
+        assert!(matches!(
+            tool_call_entry(&app, "transport-1").status,
+            ToolCallStatus::Pending
+        ));
+
+        handle_mcp_approval_validated_event(
+            "approve-1",
+            &approval_call,
+            true,
+            None,
+            &mut app,
+            None,
+            &mcp_manager,
+            &dust_tx,
+        );
+        assert_eq!(app.messages().len(), 1);
+        assert!(matches!(
+            tool_call_entry(&app, "transport-1").status,
+            ToolCallStatus::Running
+        ));
+
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        drain_events(&mut app, &mut dust_rx, &mcp_manager, &dust_tx);
+        assert_eq!(app.messages().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn manual_transport_first_transitions_same_row_running_before_result() {
+        let mcp_manager = test_mcp_manager().await;
+        let mut app = App::new("agent", "/workspace", None);
+        let (dust_tx, mut dust_rx) = mpsc::unbounded_channel::<DustEvent>();
+        let transport_call = ToolCall {
+            id: "transport-1".into(),
+            name: "custom_tool".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        let approval_call = ToolCall {
+            id: "approve-1".into(),
+            name: "custom_tool".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+
+        handle_mcp_tool_use_event(&transport_call, &mut app, None, &mcp_manager, &dust_tx);
+        assert_eq!(app.messages().len(), 1);
+        assert!(matches!(
+            tool_call_entry(&app, "transport-1").status,
+            ToolCallStatus::Pending
+        ));
+
+        handle_tool_approve_execution_event(
+            "approve-1".to_string(),
+            "conv-1".to_string(),
+            "msg-1".to_string(),
+            &approval_call.name,
+            approval_call.input.clone(),
+            &mut app,
+            None,
+            &dust_tx,
+        );
+        assert_eq!(app.messages().len(), 1);
+        assert!(matches!(app.mode(), AppMode::ToolApproval(_)));
+
+        let state = app
+            .current_tool_approval_state()
+            .cloned()
+            .expect("tool approval state");
+        handle_approve_tool_action(state, &mut app, None, &mcp_manager, &dust_tx);
+
+        tokio::task::yield_now().await;
+        drain_events(&mut app, &mut dust_rx, &mcp_manager, &dust_tx);
+        assert_eq!(app.messages().len(), 1);
+        assert!(matches!(
+            tool_call_entry(&app, "transport-1").status,
+            ToolCallStatus::Running
+        ));
+
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        drain_events(&mut app, &mut dust_rx, &mcp_manager, &dust_tx);
+        assert_eq!(app.messages().len(), 1);
+        assert!(matches!(
+            tool_call_entry(&app, "transport-1").status,
+            ToolCallStatus::Failed
+        ));
     }
 }
