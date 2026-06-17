@@ -591,7 +591,7 @@ mod tests {
             name: "test_tool".to_string(),
             input: serde_json::json!({}),
         };
-        let tool_call_id = app.push_tool_call(tool_call);
+        let _tool_call_id = app.push_tool_call(tool_call);
 
         // Initial state should not be expanded
         if let Role::ToolCall(entry) = &app.messages()[0].role {
