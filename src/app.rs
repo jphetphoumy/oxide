@@ -129,6 +129,10 @@ pub struct App {
     /// Tool names approved via `ToolApproveExecution` (Dust-side gate) awaiting the subsequent
     /// MCP transport `tools/call`. Consumed by `consume_transport_pre_approval`.
     pending_mcp_transport_approvals: std::collections::VecDeque<String>,
+    /// Queue of tool approvals waiting to be shown when the current `ToolApproval` is dismissed.
+    /// When the agent runs parallel tool calls, multiple `ToolApproveExecution` events arrive
+    /// simultaneously. The first is shown immediately; extras are queued here.
+    pending_tool_approval_queue: std::collections::VecDeque<ToolApprovalState>,
     skills: Vec<crate::skills::Skill>,
     active_skills: Vec<crate::skills::Skill>,
     subagent_count: usize,
@@ -154,6 +158,7 @@ impl App {
             mode: AppMode::Chat,
             auto_approve_tools: false,
             pending_mcp_transport_approvals: std::collections::VecDeque::new(),
+            pending_tool_approval_queue: std::collections::VecDeque::new(),
             skills: Vec::new(),
             active_skills: Vec::new(),
             subagent_count: 0,
@@ -554,6 +559,7 @@ impl App {
         self.scroll_offset = 0;
         self.clear_active_skills();
         self.pending_mcp_transport_approvals.clear();
+        self.pending_tool_approval_queue.clear();
         // context_size is preserved — the agent hasn't changed
         self.context_usage = None;
         self.push_system_message(&format!(
@@ -562,9 +568,17 @@ impl App {
         ));
     }
 
+    fn queue_or_enter_tool_approval(&mut self, state: ToolApprovalState) {
+        if matches!(self.mode, AppMode::ToolApproval(_)) {
+            self.pending_tool_approval_queue.push_back(state);
+        } else {
+            self.scroll_offset = 0;
+            self.mode = AppMode::ToolApproval(state);
+        }
+    }
+
     pub fn enter_tool_approval(&mut self, tool_call: ToolCall, call_id: String) {
-        self.scroll_offset = 0;
-        self.mode = AppMode::ToolApproval(ToolApprovalState {
+        self.queue_or_enter_tool_approval(ToolApprovalState {
             call_id,
             tool_call,
             mcp_approve: None,
@@ -578,8 +592,7 @@ impl App {
         call_id: String,
         mcp_approve: McpApproveInfo,
     ) {
-        self.scroll_offset = 0;
-        self.mode = AppMode::ToolApproval(ToolApprovalState {
+        self.queue_or_enter_tool_approval(ToolApprovalState {
             call_id,
             tool_call,
             mcp_approve: Some(mcp_approve),
@@ -588,8 +601,7 @@ impl App {
     }
 
     pub fn enter_mcp_transport_tool_approval(&mut self, tool_call: ToolCall, call_id: String) {
-        self.scroll_offset = 0;
-        self.mode = AppMode::ToolApproval(ToolApprovalState {
+        self.queue_or_enter_tool_approval(ToolApprovalState {
             call_id,
             tool_call,
             mcp_approve: None,
@@ -622,7 +634,12 @@ impl App {
     }
 
     pub fn exit_tool_approval(&mut self) {
-        self.mode = AppMode::Chat;
+        if let Some(next) = self.pending_tool_approval_queue.pop_front() {
+            self.scroll_offset = 0;
+            self.mode = AppMode::ToolApproval(next);
+        } else {
+            self.mode = AppMode::Chat;
+        }
     }
 
     pub const fn current_tool_approval_state(&self) -> Option<&ToolApprovalState> {
