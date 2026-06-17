@@ -506,72 +506,16 @@ fn handle_tool_approve_execution_event(
 fn drain_pending_dust_events(
     dust_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DustEvent>,
     app: &mut App,
+    client: Option<&DustClient>,
+    mcp_manager: &Arc<tokio::sync::Mutex<McpManager>>,
+    dust_tx: &tokio::sync::mpsc::UnboundedSender<DustEvent>,
 ) {
     while let Ok(message) = dust_rx.try_recv() {
-        match message {
-            DustEvent::Token(token, conv_id)
-                if conv_id == app.conversation_id().map(ToString::to_string)
-                    && app.is_streaming() =>
-            {
-                app.append_agent_token(&token);
-            }
-            DustEvent::Complete(content, conv_id)
-                if conv_id == app.conversation_id().map(ToString::to_string)
-                    && app.is_streaming() =>
-            {
-                app.complete_stream(content.as_deref());
-            }
-            DustEvent::Error(error) => app.push_system_message(&error),
-            DustEvent::ConversationCreated(conversation_id) => {
-                app.set_conversation_id(conversation_id);
-            }
-            DustEvent::UserMessageCreated(user_message_id) => {
-                app.set_user_message_id(user_message_id);
-            }
-            DustEvent::ConversationsListed(conversations) => {
-                app.set_resume_conversations(conversations);
-            }
-            DustEvent::ConversationLoaded {
-                conversation_id,
-                title,
-                messages,
-            } => {
-                let role_messages: Vec<_> = messages
-                    .into_iter()
-                    .map(|(role_str, content)| {
-                        let role = match role_str.as_str() {
-                            "user" => app::Role::User,
-                            "system" => app::Role::System,
-                            _ => app::Role::Agent("agent".to_string()),
-                        };
-                        (role, content)
-                    })
-                    .collect();
-                app.restore_conversation(conversation_id, role_messages, title.as_deref());
-            }
-            DustEvent::SubagentStarted {
-                call_id,
-                description,
-            } => {
-                app.push_subagent_started(call_id, description);
-            }
-            DustEvent::SubagentFinished {
-                call_id, success, ..
-            } => {
-                app.complete_subagent(&call_id, success);
-            }
-            DustEvent::ToolCallResult {
-                call_id,
-                result,
-                is_error,
-            } => {
-                if is_error {
-                    app.fail_tool_call(&call_id, result);
-                } else {
-                    app.complete_tool_call(&call_id, result);
-                }
-            }
-            _ => {}
+        handle_dust_message(message, app, client, mcp_manager, dust_tx);
+        if !app.is_streaming() {
+            // Stream ended (Complete or Error) — stop draining to let the
+            // main select loop pick up any remaining events cleanly.
+            break;
         }
     }
 }
@@ -1132,7 +1076,13 @@ async fn run_tui_main_loop(
             }
         }
 
-        drain_pending_dust_events(&mut dust_rx, &mut app);
+        drain_pending_dust_events(
+            &mut dust_rx,
+            &mut app,
+            client.as_ref(),
+            &mcp_manager,
+            &dust_tx,
+        );
 
         if let Some(handle) =
             handle_pending_message_submit(pending_submit.take(), client.clone(), &app, &dust_tx)
