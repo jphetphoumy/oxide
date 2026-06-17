@@ -80,6 +80,12 @@ pub enum DustEvent {
         used: u32,
         size: u32,
     },
+    /// Tool call result (from auto-approve or manual approval execution)
+    ToolCallResult {
+        call_id: String,
+        result: String,
+        is_error: bool,
+    },
 }
 
 #[derive(Debug, serde::Deserialize)]

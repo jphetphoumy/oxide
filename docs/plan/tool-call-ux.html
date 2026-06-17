@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oxide — Tool Call UX</title>
+  <style>
+    /* Oxide Plan Design System - Color Palette */
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --text-dim: #484f58;
+      --accent: #58a6ff;
+      --accent-dim: #1f6feb33;
+      --accent2: #f78166;
+      --green: #3fb950;
+      --green-dim: #23863533;
+      --yellow: #d29922;
+      --yellow-dim: #d2992233;
+      --red: #f85149;
+      --red-dim: #f8514933;
+      --purple: #bc8cff;
+      --purple-dim: #bc8cff33;
+      --orange: #db6d28;
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: var(--font-sans); background: var(--bg); color: var(--text); line-height: 1.6; padding: 2rem; max-width: 960px; margin: 0 auto; }
+    h1 { font-size: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; margin-bottom: 1.5rem; color: #fff; }
+    h1 span { color: var(--accent2); }
+    h2 { font-size: 1.3rem; color: var(--accent); margin: 2rem 0 0.75rem; display: flex; align-items: center; gap: 0.5rem; padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+    h2 .num { background: var(--accent); color: var(--bg); border-radius: 50%; width: 1.6rem; height: 1.6rem; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 700; flex-shrink: 0; }
+    h3 { font-size: 1rem; color: var(--purple); margin: 1rem 0 0.4rem; }
+    h4 { font-size: 0.95rem; color: var(--yellow); margin: 0.8rem 0 0.3rem; }
+    p, li { color: var(--text); margin-bottom: 0.4rem; }
+    ul, ol { padding-left: 1.4rem; margin: 0.3rem 0 0.8rem; }
+    li { margin: 0.25rem 0; }
+    code { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.4rem; font-size: 0.9em; color: var(--accent2); font-family: var(--font-mono); }
+    pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; overflow-x: auto; margin: 0.5rem 0 1rem; font-size: 0.85rem; line-height: 1.5; font-family: var(--font-mono); }
+    pre code { background: none; border: none; padding: 0; color: var(--text); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; margin: 0.75rem 0; }
+    .card-success { background: var(--green-dim); border-color: var(--green); border-left: 3px solid var(--green); }
+    .card-warning { background: var(--yellow-dim); border-color: var(--yellow); border-left: 3px solid var(--yellow); }
+    .card-error { background: var(--red-dim); border-color: var(--red); border-left: 3px solid var(--red); }
+    .card-info { background: var(--purple-dim); border-color: var(--purple); border-left: 3px solid var(--purple); }
+    .card-accent { background: var(--accent-dim); border-color: var(--accent); border-left: 3px solid var(--accent); }
+    .objective { border-left: 3px solid var(--accent); padding: 0.75rem 1rem; background: var(--surface); border-radius: 0 8px 8px 0; margin: 1rem 0; }
+    .flow-diagram { background: #000; border: 2px solid var(--border); border-radius: 8px; padding: 1rem; font-family: var(--font-mono); font-size: 0.8rem; white-space: pre; line-height: 1.4; color: var(--text-muted); overflow-x: auto; margin: 0.5rem 0 1rem; }
+    .flow-diagram .highlight { color: var(--accent); }
+    .flow-diagram .green { color: var(--green); }
+    .flow-diagram .orange { color: var(--orange); }
+    .flow-diagram .yellow { color: var(--yellow); }
+    .flow-diagram .red { color: var(--red); }
+    .flow-diagram .dim { color: var(--text-dim); }
+    .tag { display: inline-block; font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 12px; font-weight: 600; margin-right: 0.3rem; margin-bottom: 0.3rem; }
+    .tag-new { background: #1f2937; color: var(--purple); border: 1px solid var(--purple); }
+    .tag-mod { background: #1f2937; color: var(--accent); border: 1px solid var(--accent); }
+    .tag-dep { background: #1f2937; color: var(--yellow); border: 1px solid var(--yellow); }
+    .tag-fix { background: #1f2937; color: var(--green); border: 1px solid var(--green); }
+    table { width: 100%; border-collapse: collapse; margin: 0.5rem 0 1rem; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border: 1px solid var(--border); font-size: 0.9rem; }
+    th { background: var(--surface); color: var(--accent); font-weight: 600; }
+    tr:hover { background: rgba(88, 166, 255, 0.05); }
+    section { margin-bottom: 2rem; }
+  </style>
+</head>
+<body>
+
+<h1><span>Oxide</span> Tool Call UX</h1>
+
+<div class="objective">
+  <strong>Goal:</strong> Show tool calls inline in the chat message history, with tool name + arguments and the result after execution — matching the Claude Code terminal UX.<br>
+  <strong>Scope:</strong> New <code>Role::ToolCall</code> variant, inline rendering in <code>messages.rs</code>, wiring in <code>app.rs</code> and <code>main.rs</code>. The existing approval overlay is simplified to just keybinding hints.<br>
+  <strong>Success:</strong> Every tool call (auto-approved or manual) leaves a persistent <code>● Tool(arg)</code> line in history, followed by <code>⎿ result</code> after execution. Denied calls show <code>✗ denied</code>.
+</div>
+
+<section>
+  <h2><span class="num">1</span> Target UX</h2>
+
+  <h3>Auto-approved tool (no prompt)</h3>
+  <div class="flow-diagram"><span class="text-muted">  </span><span class="orange">●</span> <span class="highlight">Bash</span>(ls -al /tmp)
+    <span class="green">⎿</span>  total 64
+       drwxrwxrwt 2 root root 4096 Jun 17 10:00 .</div>
+
+  <h3>Manual approval — pending</h3>
+  <div class="flow-diagram"><span class="text-muted">  </span><span class="yellow">●</span> <span class="highlight">Bash</span>(rm -rf /important)
+    <span class="yellow">⚠</span>  [y] approve  [n] deny  [Esc] cancel</div>
+
+  <h3>Manual approval — approved + result</h3>
+  <div class="flow-diagram"><span class="text-muted">  </span><span class="orange">●</span> <span class="highlight">Bash</span>(rm -rf /important)
+    <span class="green">⎿</span>  removed '/important'</div>
+
+  <h3>Manual approval — denied</h3>
+  <div class="flow-diagram"><span class="text-muted">  </span><span class="red">●</span> <span class="highlight">Bash</span>(rm -rf /important)
+    <span class="red">⎿</span>  denied by user</div>
+
+  <h3>Running (spinner while executing)</h3>
+  <div class="flow-diagram"><span class="text-muted">  </span><span class="yellow">⟳</span> <span class="highlight">Bash</span>(npm install)
+    <span class="dim">executing...</span></div>
+
+  <h3>Done — long output truncated (default)</h3>
+  <div class="flow-diagram"><span class="text-muted">  </span><span class="orange">●</span> <span class="highlight">Bash</span>(cargo clippy -- -W clippy::all)
+    <span class="green">⎿</span>  warning: unused variable `x`
+       warning: unused import `std::fmt`
+       warning: dead_code: function `helper` is never used
+       warning: clippy::needless_pass_by_value
+       warning: clippy::redundant_clone
+    <span class="dim">   … +164 lines (ctrl+o to expand)</span></div>
+
+  <h3>Done — expanded (after ctrl+o)</h3>
+  <div class="flow-diagram"><span class="text-muted">  </span><span class="orange">●</span> <span class="highlight">Bash</span>(cargo clippy -- -W clippy::all)
+    <span class="green">⎿</span>  warning: unused variable `x`
+       warning: unused import `std::fmt`
+       warning: dead_code: function `helper` is never used
+       warning: clippy::needless_pass_by_value
+       warning: clippy::redundant_clone
+       <span class="dim">... all 169 lines shown ...</span>
+       error: aborting due to 2 previous errors
+    <span class="dim">   (ctrl+o to collapse)</span></div>
+</section>
+
+<section>
+  <h2><span class="num">2</span> Data Model changes — <code>app.rs</code></h2>
+
+  <div class="card card-accent">
+    <h3>New types</h3>
+    <pre><code>pub enum ToolCallStatus {
+    Pending,   // waiting for user approval
+    Running,   // approved, executing
+    Done,      // finished successfully
+    Failed,    // execution error
+    Denied,    // user denied
+}
+
+pub struct ToolCallEntry {
+    pub call_id: String,              // tool_call.id
+    pub tool_name: String,
+    pub input: serde_json::Value,
+    pub status: ToolCallStatus,
+    pub result: Option&lt;String&gt;,       // stdout / error shown under ⎿
+    pub expanded: bool,               // ctrl+o toggles full result view
+    pub started_at: std::time::Instant,
+    pub finished_at: Option&lt;std::time::Instant&gt;,
+}
+
+// Truncation threshold: show first N output lines by default
+const TOOL_RESULT_PREVIEW_LINES: usize = 5;</code></pre>
+  </div>
+
+  <div class="card card-accent">
+    <h3>New <code>Role</code> variant</h3>
+    <pre><code>pub enum Role {
+    User,
+    Agent(String),
+    System,
+    SubagentCall(SubagentCallState),
+    ToolCall(ToolCallEntry),          // &lt;-- NEW
+}</code></pre>
+  </div>
+
+  <div class="card">
+    <h3>New <code>App</code> methods</h3>
+    <table>
+      <tr><th>Method</th><th>Purpose</th></tr>
+      <tr><td><code>push_tool_call(tool_call) → String</code></td><td>Push a <code>Pending</code> entry; returns <code>call_id</code></td></tr>
+      <tr><td><code>set_tool_call_running(call_id)</code></td><td>Transition <code>Pending → Running</code> on approve</td></tr>
+      <tr><td><code>complete_tool_call(call_id, result)</code></td><td>Transition <code>Running → Done</code>, stores result</td></tr>
+      <tr><td><code>fail_tool_call(call_id, error)</code></td><td>Transition → <code>Failed</code>, stores error</td></tr>
+      <tr><td><code>deny_tool_call(call_id)</code></td><td>Transition <code>Pending → Denied</code></td></tr>
+      <tr><td><code>toggle_tool_call_expanded(call_id)</code></td><td>Flip <code>expanded</code> bool on the entry</td></tr>
+      <tr><td><code>last_tool_call_id() → Option&lt;&amp;str&gt;</code></td><td>Returns id of the most recent <code>ToolCall</code> message (for ctrl+o targeting)</td></tr>
+    </table>
+  </div>
+
+  <div class="card card-info">
+    <h3>Modified <code>enter_tool_approval</code></h3>
+    <p>Before entering <code>AppMode::ToolApproval</code>, call <code>push_tool_call()</code> to add the inline entry. The <code>ToolApprovalState</code> gains a <code>call_id: String</code> field so approval/denial can reference the history entry.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">3</span> Rendering changes — <code>messages.rs</code></h2>
+
+  <div class="card card-accent">
+    <h3>New <code>Role::ToolCall</code> branch in <code>render_messages</code></h3>
+    <pre><code>Role::ToolCall(entry) =&gt; {
+    lines.push(Line::from(""));
+    lines.extend(tool_call_lines(entry, app.tick_count()));
+}</code></pre>
+  </div>
+
+  <div class="card">
+    <h3><code>tool_call_lines(entry, tick)</code></h3>
+    <table>
+      <tr><th>Status</th><th>Bullet</th><th>Color</th><th>Second line</th></tr>
+      <tr><td><code>Pending</code></td><td><code>●</code></td><td>Yellow</td><td><code>⚠  [y] approve  [n] deny  [Esc] cancel</code></td></tr>
+      <tr><td><code>Running</code></td><td><code>⟳</code> (spinner)</td><td>Yellow</td><td><em>none</em></td></tr>
+      <tr><td><code>Done</code></td><td><code>●</code></td><td>White</td><td><code>⎿  &lt;result lines&gt;</code></td></tr>
+      <tr><td><code>Failed</code></td><td><code>●</code></td><td>Red</td><td><code>⎿  &lt;error&gt;</code> in red</td></tr>
+      <tr><td><code>Denied</code></td><td><code>●</code></td><td>Dark gray</td><td><code>⎿  denied by user</code> in dark gray</td></tr>
+    </table>
+  </div>
+
+  <div class="card card-accent">
+    <h3>Header line format</h3>
+    <pre><code>  ● ToolName(first_arg_value)
+         │         │
+         │         └── extracted from input JSON:
+         │              • if object has "command" key → show its string value
+         │              • if object has exactly one key → show that value
+         │              • otherwise → show truncated JSON (max 40 chars)
+         └── bullet colored by status</code></pre>
+    <p>Max header line: truncate arg preview at 60 chars with <code>…</code>.</p>
+  </div>
+
+  <div class="card card-info">
+    <h3>Result rendering — truncation</h3>
+    <p>Result text is split on <code>\n</code>. Each line is word-wrapped with the existing <code>wrap_line()</code> helper.</p>
+    <ul>
+      <li>First result line gets the <code>⎿</code> prefix; subsequent lines get a <code>   </code> indent (3 spaces) to align under the arrow.</li>
+      <li>If <strong>collapsed</strong> (<code>expanded == false</code>) and the result has more than <code>TOOL_RESULT_PREVIEW_LINES</code> (5) lines: render only the first 5, then append a dim hint line: <code>… +N lines (ctrl+o to expand)</code></li>
+      <li>If <strong>expanded</strong> (<code>expanded == true</code>): render all lines, then append a dim hint: <code>(ctrl+o to collapse)</code></li>
+      <li>Results with ≤ 5 lines: rendered in full, no hint shown.</li>
+    </ul>
+  </div>
+
+  <div class="card card-warning">
+    <h3>Simplified approval overlay</h3>
+    <p>The <code>tool_approval_lines()</code> function in <code>render_messages</code> currently renders the full tool detail + keybindings as a bottom overlay. With inline display, the overlay is <strong>removed entirely</strong> — the <code>Pending</code> state of the inline <code>ToolCall</code> entry already shows <code>[y] approve  [n] deny  [Esc] cancel</code>.</p>
+    <p>The <code>AppMode::ToolApproval</code> block in <code>render_messages</code> is deleted.</p>
+  </div>
+
+  <div class="card card-accent">
+    <h3>ctrl+o targeting</h3>
+    <p><code>ctrl+o</code> expands/collapses the <strong>most recent</strong> <code>ToolCall</code> message in history (regardless of scroll position). This is the same heuristic Claude Code uses — the last tool output is the one you care about. Future work could add per-entry selection, but that's out of scope here.</p>
+    <p>Implementation: <code>app.last_tool_call_id()</code> walks <code>messages</code> in reverse, returns the first <code>Role::ToolCall</code> entry's id. The key handler calls <code>app.toggle_tool_call_expanded(&amp;id)</code>.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">4</span> Wiring changes — <code>main.rs</code></h2>
+
+  <div class="card">
+    <h3>Auto-approve path (<code>handle_tool_use_event</code> / <code>handle_mcp_tool_use_event</code>)</h3>
+    <ol>
+      <li>Call <code>app.push_tool_call(tool_call.clone())</code> → get <code>call_id</code></li>
+      <li>Call <code>app.set_tool_call_running(&amp;call_id)</code> immediately (no user gate)</li>
+      <li>Spawn async task; on success call <code>app.complete_tool_call(&amp;call_id, result)</code> via a <code>DustEvent::ToolCallResult</code> message</li>
+      <li>On error call <code>app.fail_tool_call(&amp;call_id, error)</code> the same way</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h3>Manual approve path (<code>enter_tool_approval</code> callers)</h3>
+    <ol>
+      <li>Call <code>app.push_tool_call(tool_call.clone())</code> → <code>call_id</code></li>
+      <li>Call <code>app.enter_tool_approval(tool_call, call_id)</code> — now carries the id</li>
+      <li>On approve: <code>set_tool_call_running</code>, spawn, send result via event</li>
+      <li>On deny: <code>app.deny_tool_call(&amp;call_id)</code></li>
+    </ol>
+  </div>
+
+  <div class="card card-accent">
+    <h3>New <code>DustEvent</code> variants</h3>
+    <pre><code>DustEvent::ToolCallResult {
+    call_id: String,
+    result: String,
+    is_error: bool,
+}</code></pre>
+    <p>Handled in <code>handle_dust_message</code> → calls <code>complete_tool_call</code> or <code>fail_tool_call</code>. Also handled in <code>drain_pending_dust_events</code>.</p>
+  </div>
+
+  <div class="card card-info">
+    <h3><code>ToolApprovalState</code> gains <code>call_id</code></h3>
+    <pre><code>pub struct ToolApprovalState {
+    pub call_id: String,           // &lt;-- NEW: links to history entry
+    pub tool_call: ToolCall,
+    pub mcp_approve: Option&lt;McpApproveInfo&gt;,
+    pub mcp_transport: bool,
+}</code></pre>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">5</span> Files touched</h2>
+
+  <div class="card">
+    <table>
+      <tr><th>File</th><th>Change</th><th>Tag</th></tr>
+      <tr>
+        <td><code>src/app.rs</code></td>
+        <td>Add <code>ToolCallStatus</code>, <code>ToolCallEntry</code>, <code>Role::ToolCall</code>; add 5 new <code>App</code> methods; add <code>call_id</code> to <code>ToolApprovalState</code></td>
+        <td><span class="tag tag-mod">mod</span></td>
+      </tr>
+      <tr>
+        <td><code>src/ui/messages.rs</code></td>
+        <td>Add <code>Role::ToolCall</code> render branch; add <code>tool_call_lines()</code>; remove <code>tool_approval_lines()</code> overlay block</td>
+        <td><span class="tag tag-mod">mod</span></td>
+      </tr>
+      <tr>
+        <td><code>src/dust/client.rs</code></td>
+        <td>Add <code>DustEvent::ToolCallResult</code> variant</td>
+        <td><span class="tag tag-mod">mod</span></td>
+      </tr>
+      <tr>
+        <td><code>src/main.rs</code></td>
+        <td>Wire <code>push_tool_call</code> into all tool execution paths; handle <code>DustEvent::ToolCallResult</code>; pass <code>call_id</code> through approve/deny handlers</td>
+        <td><span class="tag tag-mod">mod</span></td>
+      </tr>
+      <tr>
+        <td><code>src/handler.rs</code></td>
+        <td>Add <code>Action::ToggleToolExpand</code>; bind <code>ctrl+o</code> in <code>handle_key_event</code>; apply in <code>apply_action</code> via <code>app.last_tool_call_id()</code> + <code>toggle_tool_call_expanded</code></td>
+        <td><span class="tag tag-mod">mod</span></td>
+      </tr>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">6</span> Testing</h2>
+
+  <div class="card card-success">
+    <h3>New unit tests in <code>messages.rs</code></h3>
+    <ul>
+      <li><code>tool_call_pending_shows_bullet_and_approval_hints</code></li>
+      <li><code>tool_call_running_shows_spinner</code></li>
+      <li><code>tool_call_done_shows_result_with_arrow</code></li>
+      <li><code>tool_call_denied_shows_dim_denied</code></li>
+      <li><code>tool_call_failed_shows_red_error</code></li>
+      <li><code>tool_call_arg_preview_extracts_command_key</code></li>
+      <li><code>tool_call_arg_preview_truncates_long_value</code></li>
+      <li><code>tool_call_short_result_not_truncated</code></li>
+      <li><code>tool_call_long_result_truncated_with_hint</code></li>
+      <li><code>tool_call_expanded_shows_all_lines_with_collapse_hint</code></li>
+    </ul>
+  </div>
+
+  <div class="card card-success">
+    <h3>New unit tests in <code>app.rs</code></h3>
+    <ul>
+      <li><code>push_tool_call_adds_pending_entry</code></li>
+      <li><code>complete_tool_call_updates_status_and_result</code></li>
+      <li><code>deny_tool_call_sets_denied_status</code></li>
+      <li><code>fail_tool_call_sets_failed_status</code></li>
+      <li><code>toggle_tool_call_expanded_flips_bool</code></li>
+      <li><code>last_tool_call_id_returns_most_recent</code></li>
+      <li><code>last_tool_call_id_none_when_no_tool_calls</code></li>
+    </ul>
+  </div>
+
+  <div class="card card-info">
+    <h3>Manual tmux test</h3>
+    <pre><code>tmux new-session -d -s oxide-test -x 120 -y 30 "cargo run"
+sleep 3
+# Trigger a tool call (requires a connected agent that uses tools)
+tmux send-keys -t oxide-test "/tool ls" Enter
+sleep 2
+tmux capture-pane -t oxide-test -p
+# Expect: ● tool_name(ls) and ⎿ result in the output
+tmux kill-session -t oxide-test</code></pre>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">7</span> Risks &amp; mitigations</h2>
+
+  <div class="card card-warning">
+    <h3>Async result delivery</h3>
+    <p>The tool executes in a spawned task; the result arrives asynchronously via <code>DustEvent::ToolCallResult</code>. If the conversation changes (new conversation, agent switch) before the result arrives, the <code>call_id</code> lookup in <code>messages</code> will simply not find a match and silently no-op — no crash, stale result just disappears with the cleared messages.</p>
+  </div>
+
+  <div class="card card-success">
+    <h3>Long result output</h3>
+    <p>Tool results are stored in full in <code>ToolCallEntry.result</code>, but only the first 5 lines are rendered by default. The <code>… +N lines (ctrl+o to expand)</code> hint tells the user there's more. <code>ctrl+o</code> re-renders the full output inline. This keeps the message history scannable without losing data.</p>
+  </div>
+
+  <div class="card card-success">
+    <h3>Backward compatibility</h3>
+    <p><code>Role::ToolCall</code> is a new enum variant — all existing match arms have a wildcard or exhaustive match, so the compiler will flag any missing cases at compile time. No silent regressions possible.</p>
+  </div>
+</section>
+
+</body>
+</html>

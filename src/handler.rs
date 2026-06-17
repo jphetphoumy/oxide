@@ -22,6 +22,7 @@ pub enum Action {
     ApproveTool,
     DenyTool,
     CancelStream,
+    ToggleToolExpand,
     None,
 }
 
@@ -32,6 +33,7 @@ const MOUSE_SCROLL_LINES: usize = 3;
 pub fn handle_key_event(key: KeyEvent) -> Action {
     match (key.code, key.modifiers) {
         (KeyCode::Char('c' | 'd'), KeyModifiers::CONTROL) => Action::Quit,
+        (KeyCode::Char('o'), KeyModifiers::CONTROL) => Action::ToggleToolExpand,
         (KeyCode::Enter, m) if m.contains(KeyModifiers::ALT) => Action::InsertNewline,
         (KeyCode::Enter, _) => Action::Submit,
         (KeyCode::Tab, _) => Action::TabComplete,
@@ -140,6 +142,11 @@ pub fn apply_action(app: &mut App, input: &mut InputBuffer, action: Action) -> A
         Action::MoveEnd => input.move_end(),
         Action::ScrollUp(n) => app.scroll_up(n),
         Action::ScrollDown(n) => app.scroll_down(n),
+        Action::ToggleToolExpand => {
+            if let Some(call_id) = app.last_tool_call_id() {
+                app.toggle_tool_call_expanded(&call_id);
+            }
+        }
         Action::ApproveTool | Action::DenyTool | Action::CancelStream | Action::None => {}
     }
 
@@ -562,5 +569,58 @@ mod tests {
     #[test]
     fn parse_activate_skill_with_empty_id_returns_none() {
         assert_eq!(parse_slash_command("/skills:"), None);
+    }
+
+    #[test]
+    fn ctrl_o_produces_toggle_tool_expand() {
+        let action = handle_key_event(key_with_mod(KeyCode::Char('o'), KeyModifiers::CONTROL));
+        assert!(matches!(action, Action::ToggleToolExpand));
+    }
+
+    #[test]
+    fn apply_toggle_tool_expand_flips_last_tool_call() {
+        use crate::app::Role;
+        use crate::mcp::ToolCall;
+
+        let mut app = App::new("a", "/workspace", None);
+        let mut input = InputBuffer::new();
+
+        // Add a tool call to the app
+        let tool_call = ToolCall {
+            id: "call1".to_string(),
+            name: "test_tool".to_string(),
+            input: serde_json::json!({}),
+        };
+        let tool_call_id = app.push_tool_call(tool_call);
+
+        // Initial state should not be expanded
+        if let Role::ToolCall(entry) = &app.messages()[0].role {
+            assert!(!entry.expanded);
+        } else {
+            panic!("expected ToolCall role");
+        }
+
+        // Apply toggle action
+        let outcome = apply_action(&mut app, &mut input, Action::ToggleToolExpand);
+
+        // Verify outcome has no side effects
+        assert_eq!(outcome, ActionOutcome::default());
+
+        // Verify tool call is now expanded
+        if let Role::ToolCall(entry) = &app.messages()[0].role {
+            assert!(entry.expanded);
+        } else {
+            panic!("expected ToolCall role");
+        }
+
+        // Apply toggle again
+        apply_action(&mut app, &mut input, Action::ToggleToolExpand);
+
+        // Verify it toggled back
+        if let Role::ToolCall(entry) = &app.messages()[0].role {
+            assert!(!entry.expanded);
+        } else {
+            panic!("expected ToolCall role");
+        }
     }
 }
