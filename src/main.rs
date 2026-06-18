@@ -463,8 +463,10 @@ fn drain_pending_dust_events(
     while let Ok(message) = dust_rx.try_recv() {
         handle_dust_message(message, app, client, mcp_manager, dust_tx);
         if !app.is_streaming() {
-            // Stream ended (Complete or Error) — stop draining to let the
-            // main select loop pick up any remaining events cleanly.
+            // Stream ended (Complete or Error) — stop draining so the main
+            // select! loop re-arms cleanly on the next tick. Any events that
+            // arrived in the same batch after Complete (e.g. a ToolCallResult)
+            // remain in the channel and are processed on the next iteration.
             break;
         }
     }
@@ -1427,5 +1429,62 @@ mod tests {
             tool_call_entry(&app, "transport-1").status,
             ToolCallStatus::Failed
         ));
+    }
+
+    // Regression test for W1: when transport arrives before approval and the user denies, the
+    // McpApprovalValidated { approved: false } event must be emitted so the buffered occurrence is
+    // removed and cannot be mis-matched against a subsequent tool call with the same signature.
+    #[tokio::test]
+    async fn manual_deny_mcp_approve_with_transport_first_clears_occurrence() {
+        let mcp_manager = test_mcp_manager().await;
+        let mut app = App::new("agent", "/workspace", None);
+        let (dust_tx, mut dust_rx) = mpsc::unbounded_channel::<DustEvent>();
+        let transport_call = ToolCall {
+            id: "transport-1".into(),
+            name: "custom_tool".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+        let approval_call = ToolCall {
+            id: "approve-1".into(),
+            name: "custom_tool".into(),
+            input: serde_json::json!({"command": "ls"}),
+        };
+
+        handle_mcp_tool_use_event(&transport_call, &mut app, None, &mcp_manager, &dust_tx);
+        assert_eq!(app.pending_mcp_transport_call_ids(), vec!["transport-1"]);
+
+        handle_tool_approve_execution_event(
+            "approve-1".to_string(),
+            "conv-1".to_string(),
+            "msg-1".to_string(),
+            &approval_call.name,
+            approval_call.input.clone(),
+            &mut app,
+            None,
+            &dust_tx,
+        );
+        assert!(matches!(app.mode(), AppMode::ToolApproval(_)));
+
+        let state = app
+            .current_tool_approval_state()
+            .cloned()
+            .expect("tool approval state");
+        handle_deny_tool_action(state, &mut app, None, &dust_tx);
+        assert!(matches!(app.mode(), AppMode::Chat));
+        assert!(matches!(
+            tool_call_entry(&app, "transport-1").status,
+            ToolCallStatus::Denied
+        ));
+
+        // The McpApprovalValidated { approved: false } event is in the channel; the occurrence is
+        // still present until we drain it.
+        assert_eq!(app.pending_mcp_transport_call_ids(), vec!["transport-1"]);
+
+        tokio::task::yield_now().await;
+        drain_events(&mut app, &mut dust_rx, &mcp_manager, &dust_tx);
+
+        // After draining, the buffered occurrence must be gone.
+        assert!(app.pending_mcp_transport_call_ids().is_empty());
+        assert_eq!(app.messages().len(), 1);
     }
 }

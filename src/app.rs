@@ -794,12 +794,12 @@ impl App {
         None
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn buffer_pending_mcp_transport_call(&mut self, tool_call: ToolCall) {
         let _ = self.register_pending_mcp_transport_call(tool_call);
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn take_pending_mcp_transport_call(&mut self, tool_call: &ToolCall) -> Option<ToolCall> {
         let position = self
             .pending_mcp_transport_occurrences
@@ -815,7 +815,7 @@ impl App {
         })
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn mark_tool_transport_pre_approved(
         &mut self,
         approval_call_id: String,
@@ -824,7 +824,7 @@ impl App {
         let _ = self.register_mcp_approval_validation(approval_call_id, tool_call, true);
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn take_transport_pre_approval(&mut self, tool_call: &ToolCall) -> Option<String> {
         let position = self
             .pending_mcp_transport_occurrences
@@ -842,7 +842,7 @@ impl App {
         })
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn clear_tool_transport_state(&mut self, tool_call: &ToolCall) {
         if let Some(idx) = self
             .pending_mcp_transport_occurrences
@@ -883,7 +883,7 @@ impl App {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub const fn current_tool_call(&self) -> Option<&ToolCall> {
         if let AppMode::ToolApproval(state) = &self.mode {
             Some(&state.tool_call)
