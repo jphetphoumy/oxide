@@ -881,6 +881,7 @@ fn handle_deny_tool_action(
     state: crate::app::ToolApprovalState,
     app: &mut App,
     client: Option<DustClient>,
+    dust_tx: &tokio::sync::mpsc::UnboundedSender<DustEvent>,
 ) {
     let call_id = state.call_id.clone();
     let tool_call = state.tool_call.clone();
@@ -889,6 +890,8 @@ fn handle_deny_tool_action(
     let dust_client = client;
     if let Some(mcp_info) = state.mcp_approve {
         // MCP flow: reject via validate_action
+        let call_id_clone = call_id.clone();
+        let dust_tx_inner = dust_tx.clone();
         tokio::spawn(async move {
             if let Some(c) = dust_client
                 && let Err(e) = c
@@ -901,6 +904,19 @@ fn handle_deny_tool_action(
                     .await
             {
                 tracing::error!(error = %e, "failed to reject MCP action");
+                let _ = dust_tx_inner.send(DustEvent::McpApprovalValidated {
+                    call_id: call_id_clone.clone(),
+                    tool_call: tool_call.clone(),
+                    approved: false,
+                    error: Some(e.to_string()),
+                });
+            } else {
+                let _ = dust_tx_inner.send(DustEvent::McpApprovalValidated {
+                    call_id: call_id_clone,
+                    tool_call,
+                    approved: false,
+                    error: None,
+                });
             }
         });
     } else if state.mcp_transport {
@@ -1074,7 +1090,7 @@ async fn run_tui_main_loop(
                                     }
                                     Action::DenyTool => {
                                         if let Some(state) = app.current_tool_approval_state().cloned() {
-                                            handle_deny_tool_action(state, &mut app, client.clone());
+                                            handle_deny_tool_action(state, &mut app, client.clone(), &dust_tx);
                                         }
                                     }
                                     _ => {}
